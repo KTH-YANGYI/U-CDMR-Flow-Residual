@@ -1,0 +1,22 @@
+model:
+  type: residual_flow_unet
+  base_channels: 48
+  style_dim: 16
+  time_dim: 128
+  condition_channels: 7
+training:
+  objective: rectified_flow
+  x1: gate_masked_real_crack_minus_pseudo_normal
+  x0: gate_masked_gaussian_noise
+  flow_sigma: 1.0
+  tile_size: 768
+  native_output: true
+  no_global_resize: true
+loss:
+  flow_mse: 1.0
+  outside_mse: 0.25
+  velocity_leak: 1.0
+sampling:
+  sampler: euler
+  steps: 32
+  formula: I_syn = I_normal + gate(M_syn) * Delta_flow

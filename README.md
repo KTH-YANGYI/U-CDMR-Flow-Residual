@@ -56,7 +56,7 @@ manifest_merged.csv
   -> LabelMe to masks
   -> M_raw / M_inpaint / M_band / M_gate / skeleton / SDF / thickness
   -> pseudo-normal from real crack images
-  -> pretrained-encoder residual renderer
+  -> residual Flow Matching / Rectified Flow
   -> optional descriptor Mask Flow
   -> synthetic image-mask pairs
   -> synthetic filter
@@ -100,6 +100,7 @@ Training and generation:
 
 ```bash
 ucdmr_plus_train_teacher
+ucdmr_plus_train_residual_flow
 ucdmr_plus_train_residual_renderer
 ucdmr_plus_train_mask_descriptor_flow
 ucdmr_plus_sample_masks
@@ -118,6 +119,7 @@ ucdmr_plus_prepare_splits --dry-run
 ucdmr_plus_prepare_masks --dry-run --split train --max-samples 1
 ucdmr_plus_prepare_pseudo_normal --dry-run --split train --max-samples 1
 ucdmr_plus_train_teacher --dry-run
+ucdmr_plus_train_residual_flow --dry-run
 ucdmr_plus_train_residual_renderer --dry-run
 ucdmr_plus_train_mask_descriptor_flow --dry-run
 ucdmr_plus_sample_masks --dry-run
@@ -129,7 +131,24 @@ ucdmr_plus_eval_downstream --dry-run
 
 ## Model Route
 
-Residual renderer:
+Residual Flow Matching main generator:
+
+```text
+x1 = gate(M_real) * (I_crack - I_pseudo_normal)
+x0 = gate(M_real) * gaussian_noise
+x_t = (1 - t) * x0 + t * x1
+FlowModel(x_t, t, I_pseudo_normal, mask representations, domain, style)
+  -> velocity
+```
+
+Generation samples `Delta_flow` by ODE integration and blends it as:
+
+```text
+I_syn = I_normal + gate(M_syn) * Delta_flow
+Y_syn = M_syn
+```
+
+The deterministic residual renderer is retained as a baseline/warmup:
 
 ```text
 I_context + mask representations + domain + style noise
@@ -167,10 +186,11 @@ Prepare plus artifacts:
 bash scripts/alvis/prepare_ucdmr_plus_data.sh
 ```
 
-Train teacher and residual renderer:
+Train teacher, residual flow, and the deterministic renderer baseline:
 
 ```bash
 sbatch scripts/alvis/train_ucdmr_plus_teacher_2node_8gpu.slurm
+sbatch scripts/alvis/train_ucdmr_plus_residual_flow_2node_8gpu.slurm
 sbatch scripts/alvis/train_ucdmr_plus_residual_renderer_2node_8gpu.slurm
 ```
 
@@ -186,6 +206,12 @@ Generate/filter synthetic pairs:
 ```bash
 bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 bash scripts/alvis/filter_ucdmr_plus_synthetic.sh
+```
+
+Generation uses `RESIDUAL_SOURCE=flow` by default. For the deterministic baseline:
+
+```bash
+RESIDUAL_SOURCE=renderer bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 ```
 
 Use descriptor-flow masks during generation:
