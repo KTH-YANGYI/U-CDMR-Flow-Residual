@@ -6,8 +6,6 @@ generation:
   flow_sigma: 0.35
   flow_max_delta: 0.5
   same_domain_only: true
-  tile_size: 768
-  tile_overlap: 128
   native_output: true
 filter:
   max_residual_leak: 0.1

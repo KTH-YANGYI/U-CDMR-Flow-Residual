@@ -21,36 +21,14 @@ def dry_run_summary(args: Any) -> dict[str, object]:
         "stage": "plus_eval_downstream",
         "checkpoint": str(args.checkpoint or output_root / args.stage_name / "checkpoints" / "latest.pt"),
         "split": args.split,
-        "tile_size": args.tile_size,
+        "image_mode": "full_native",
         "dry_run": True,
     }
 
 
-def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
-    if length <= tile_size:
-        return [0]
-    stride = max(1, tile_size - overlap)
-    starts = list(range(0, max(length - tile_size + 1, 1), stride))
-    final = length - tile_size
-    if starts[-1] != final:
-        starts.append(final)
-    return starts
-
-
-def _predict(torch_module: Any, model: Any, image: np.ndarray, *, device: Any, tile_size: int, overlap: int) -> np.ndarray:
-    h, w = image.shape[:2]
-    th = min(tile_size, h)
-    tw = min(tile_size, w)
-    accum = np.zeros((h, w), dtype=np.float32)
-    weights = np.zeros((h, w), dtype=np.float32)
-    for y in _tile_starts(h, th, overlap):
-        for x in _tile_starts(w, tw, overlap):
-            tile = image[y : y + th, x : x + tw]
-            tensor = torch_module.from_numpy(np.transpose(tile, (2, 0, 1))[None, ...]).to(device=device, dtype=torch_module.float32)
-            logits = model(tensor).squeeze(0).squeeze(0).detach().cpu().numpy()
-            accum[y : y + th, x : x + tw] += logits
-            weights[y : y + th, x : x + tw] += 1.0
-    logits = accum / np.maximum(weights, 1.0)
+def _predict(torch_module: Any, model: Any, image: np.ndarray, *, device: Any) -> np.ndarray:
+    tensor = torch_module.from_numpy(np.transpose(image, (2, 0, 1))[None, ...]).to(device=device, dtype=torch_module.float32)
+    logits = model(tensor).squeeze(0).squeeze(0).detach().cpu().numpy()
     return 1.0 / (1.0 + np.exp(-logits))
 
 
@@ -165,7 +143,7 @@ def evaluate(args: Any) -> None:
     with torch.no_grad():
         for row in rows:
             image, target = load_real_segmentation(row, dataset_root=dataset_root)
-            prob = _predict(torch, model, image, device=device, tile_size=args.tile_size, overlap=args.tile_overlap)
+            prob = _predict(torch, model, image, device=device)
             pred = prob >= args.threshold
             domain = row.get("domain", row.get("dataset_group", ""))
             sample_id = f"{domain}__{Path(row['dataset_relative_path']).stem}"

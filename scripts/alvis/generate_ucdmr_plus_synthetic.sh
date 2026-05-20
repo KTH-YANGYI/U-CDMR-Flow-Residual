@@ -41,6 +41,4 @@ python -m ucdmr_flow_residual_plus.cli.generate_synthetic \
   --flow-max-delta "${FLOW_MAX_DELTA:-0.5}" \
   --seed-residual "${SEED_RESIDUAL:-100000}" \
   --seed-mask "${SEED_MASK:-0}" \
-  --tile-size "${TILE_SIZE:-768}" \
-  --tile-overlap "${TILE_OVERLAP:-128}" \
   --max-samples "${MAX_SAMPLES:-100}"

@@ -17,17 +17,6 @@ from ucdmr_flow_residual_plus.paths import dataset_path
 from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, CONDITION_KEYS, M_GATE_INDEX, M_RAW_INDEX, load_mask01, load_rgb01
 
 
-def _tile_starts(length: int, tile_size: int, overlap: int) -> list[int]:
-    if length <= tile_size:
-        return [0]
-    stride = max(1, tile_size - overlap)
-    starts = list(range(0, max(length - tile_size + 1, 1), stride))
-    final = length - tile_size
-    if starts[-1] != final:
-        starts.append(final)
-    return starts
-
-
 def _save_rgb(path: Path, rgb: np.ndarray) -> None:
     ensure_dir(path.parent)
     Image.fromarray(np.clip(rgb * 255.0, 0, 255).astype(np.uint8), mode="RGB").save(path)
@@ -41,7 +30,7 @@ def _condition(row: dict[str, str]) -> np.ndarray:
     return np.stack([load_mask01(resolve_existing(row[key])) for key in CONDITION_KEYS], axis=0).astype(np.float32)
 
 
-def _tiled_flow_delta(
+def _flow_delta(
     *,
     torch_module: Any,
     model: Any,
@@ -50,8 +39,6 @@ def _tiled_flow_delta(
     domain: str,
     style: np.ndarray,
     device: Any,
-    tile_size: int,
-    overlap: int,
     steps: int,
     sampler: str,
     sigma: float,
@@ -59,48 +46,35 @@ def _tiled_flow_delta(
     seed: int,
 ) -> np.ndarray:
     height, width = image.shape[:2]
-    tile_h = min(tile_size, height)
-    tile_w = min(tile_size, width)
-    accum = np.zeros((height, width, 3), dtype=np.float32)
-    weights = np.zeros((height, width, 1), dtype=np.float32)
     domain_idx = torch_module.tensor([DOMAIN_TO_INDEX.get(domain, 0)], device=device)
     style_tensor = torch_module.from_numpy(style[None, ...]).to(device=device, dtype=torch_module.float32)
+    img_tensor = torch_module.from_numpy(np.transpose(image, (2, 0, 1))[None, ...]).to(device=device, dtype=torch_module.float32)
+    cond_tensor = torch_module.from_numpy(condition[None, ...]).to(device=device, dtype=torch_module.float32)
+    gate = cond_tensor[:, M_GATE_INDEX : M_GATE_INDEX + 1].clamp(0.0, 1.0)
+    gate_support = (gate > 0.0).to(dtype=torch_module.float32)
+    try:
+        generator = torch_module.Generator(device=device)
+    except TypeError:
+        generator = torch_module.Generator()
+    generator.manual_seed(int(seed))
+    x_t = torch_module.randn((1, 3, height, width), generator=generator, device=device, dtype=torch_module.float32)
+    x_t = x_t * float(sigma) * gate_support
     step_count = max(1, int(steps))
     dt = 1.0 / float(step_count)
-    tile_index = 0
-    for y in _tile_starts(height, tile_h, overlap):
-        for x in _tile_starts(width, tile_w, overlap):
-            img_tile = image[y : y + tile_h, x : x + tile_w]
-            cond_tile = condition[:, y : y + tile_h, x : x + tile_w]
-            img_tensor = torch_module.from_numpy(np.transpose(img_tile, (2, 0, 1))[None, ...]).to(device=device, dtype=torch_module.float32)
-            cond_tensor = torch_module.from_numpy(cond_tile[None, ...]).to(device=device, dtype=torch_module.float32)
-            gate = cond_tensor[:, M_GATE_INDEX : M_GATE_INDEX + 1].clamp(0.0, 1.0)
-            gate_support = (gate > 0.0).to(dtype=torch_module.float32)
-            try:
-                generator = torch_module.Generator(device=device)
-            except TypeError:
-                generator = torch_module.Generator()
-            generator.manual_seed(int(seed) + tile_index * 1009)
-            x_t = torch_module.randn((1, 3, tile_h, tile_w), generator=generator, device=device, dtype=torch_module.float32)
-            x_t = x_t * float(sigma) * gate_support
-            for step in range(step_count):
-                t0 = step / float(step_count)
-                t = torch_module.full((1, 1, 1, 1), t0, device=device, dtype=torch_module.float32)
-                v0 = model(x_t, t, img_tensor, cond_tensor, domain_idx, style_tensor)
-                if sampler == "heun":
-                    x_pred = (x_t + dt * v0) * gate_support
-                    t1 = torch_module.full((1, 1, 1, 1), min(1.0, t0 + dt), device=device, dtype=torch_module.float32)
-                    v1 = model(x_pred, t1, img_tensor, cond_tensor, domain_idx, style_tensor)
-                    x_t = x_t + 0.5 * dt * (v0 + v1)
-                else:
-                    x_t = x_t + dt * v0
-                x_t = x_t * gate_support
-            pred = x_t.squeeze(0).detach().cpu().numpy()
-            pred = np.transpose(pred, (1, 2, 0))
-            accum[y : y + tile_h, x : x + tile_w] += pred
-            weights[y : y + tile_h, x : x + tile_w] += 1.0
-            tile_index += 1
-    delta = accum / np.maximum(weights, 1.0)
+    for step in range(step_count):
+        t0 = step / float(step_count)
+        t = torch_module.full((1, 1, 1, 1), t0, device=device, dtype=torch_module.float32)
+        v0 = model(x_t, t, img_tensor, cond_tensor, domain_idx, style_tensor)
+        if sampler == "heun":
+            x_pred = (x_t + dt * v0) * gate_support
+            t1 = torch_module.full((1, 1, 1, 1), min(1.0, t0 + dt), device=device, dtype=torch_module.float32)
+            v1 = model(x_pred, t1, img_tensor, cond_tensor, domain_idx, style_tensor)
+            x_t = x_t + 0.5 * dt * (v0 + v1)
+        else:
+            x_t = x_t + dt * v0
+        x_t = x_t * gate_support
+    delta = x_t.squeeze(0).detach().cpu().numpy()
+    delta = np.transpose(delta, (1, 2, 0))
     if max_delta is not None and max_delta > 0:
         delta = np.clip(delta, -float(max_delta), float(max_delta))
     return delta
@@ -212,7 +186,7 @@ def generate(args: Any) -> None:
             condition = _condition(mask_row)
             style_rng = random.Random(sample_seed_residual)
             style = np.asarray([style_rng.gauss(0.0, 1.0) for _ in range(style_dim)], dtype=np.float32)
-            delta = _tiled_flow_delta(
+            delta = _flow_delta(
                 torch_module=torch,
                 model=model,
                 image=image,
@@ -220,8 +194,6 @@ def generate(args: Any) -> None:
                 domain=domain,
                 style=style,
                 device=device,
-                tile_size=args.tile_size,
-                overlap=args.tile_overlap,
                 steps=args.flow_steps,
                 sampler=args.flow_sampler,
                 sigma=args.flow_sigma,
@@ -241,7 +213,7 @@ def generate(args: Any) -> None:
             teacher_recall: str | float = ""
             teacher_fp: str | float = ""
             if teacher is not None:
-                prob = predict_segmentation(torch, teacher, synthetic, device=device, tile_size=args.tile_size, overlap=args.tile_overlap)
+                prob = predict_segmentation(torch, teacher, synthetic, device=device)
                 teacher_pred = prob >= args.teacher_threshold
                 teacher_parts = segmentation_metrics(teacher_pred, raw)
                 outside_mask = ~raw

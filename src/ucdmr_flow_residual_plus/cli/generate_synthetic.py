@@ -18,8 +18,6 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--mask-source", choices=["bank", "descriptor_flow"], default="descriptor_flow")
     parser.add_argument("--mask-flow-checkpoint", type=Path, default=None)
     parser.add_argument("--device", default=None)
-    parser.add_argument("--tile-size", type=int, default=768)
-    parser.add_argument("--tile-overlap", type=int, default=128)
     parser.add_argument("--base-channels", type=int, default=None)
     parser.add_argument("--style-dim", type=int, default=None)
     parser.add_argument("--time-dim", type=int, default=None)
