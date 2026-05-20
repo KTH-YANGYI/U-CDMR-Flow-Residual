@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 try:
@@ -18,6 +19,21 @@ from ucdmr_flow_residual_plus.manifest import limit_per_domain
 from ucdmr_flow_residual_plus.mask_representations import prepare_plus_masks
 
 
+def _prepare_mask_worker(task: tuple[dict[str, str], Path, Path, int, int, int, float, float, bool]) -> dict[str, object]:
+    row, dataset_root, output_root, inpaint_radius, band_radius, gate_radius, gate_blur, sdf_clip, skip_existing = task
+    return prepare_plus_masks(
+        row,
+        dataset_root=dataset_root,
+        output_root=output_root,
+        inpaint_radius=inpaint_radius,
+        band_radius=band_radius,
+        gate_radius=gate_radius,
+        gate_blur=gate_blur,
+        sdf_clip=sdf_clip,
+        skip_existing=skip_existing,
+    )
+
+
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(description="Build plus mask representations: raw, inpaint, band, gate, skeleton, SDF, thickness.")
     add_common_args(parser)
@@ -25,6 +41,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--split", default="train")
     parser.add_argument("--max-samples-per-domain", type=int, default=None)
     parser.add_argument("--sdf-clip", type=float, default=64.0)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--skip-existing", action="store_true")
     return parser
 
 
@@ -51,21 +69,37 @@ def main() -> None:
     if args.max_samples is not None:
         cracks = cracks[: args.max_samples]
     records = []
+    actual_workers = 0
     if not args.dry_run:
-        for row in tqdm(cracks, desc="plus_masks", unit="crack"):
+        tasks = []
+        for row in cracks:
             domain = row.get("dataset_group", row.get("domain", ""))
-            records.append(
-                prepare_plus_masks(
+            tasks.append(
+                (
                     row,
-                    dataset_root=dataset_root,
-                    output_root=output_root / "masks",
-                    inpaint_radius=int(domain_value(config, "masks", "inpaint_radius", domain, 9)),
-                    band_radius=int(domain_value(config, "masks", "band_radius", domain, 5)),
-                    gate_radius=int(domain_value(config, "masks", "gate_radius", domain, 7)),
-                    gate_blur=float(domain_value(config, "masks", "gate_blur", domain, 3.0)),
-                    sdf_clip=args.sdf_clip,
+                    dataset_root,
+                    output_root / "masks",
+                    int(domain_value(config, "masks", "inpaint_radius", domain, 9)),
+                    int(domain_value(config, "masks", "band_radius", domain, 5)),
+                    int(domain_value(config, "masks", "gate_radius", domain, 7)),
+                    float(domain_value(config, "masks", "gate_blur", domain, 3.0)),
+                    args.sdf_clip,
+                    args.skip_existing,
                 )
             )
+        workers = max(1, min(args.workers, len(tasks))) if tasks else 1
+        if workers == 1:
+            actual_workers = 1 if tasks else 0
+            records = [_prepare_mask_worker(task) for task in tqdm(tasks, desc="plus_masks", unit="crack")]
+        else:
+            try:
+                with ProcessPoolExecutor(max_workers=workers) as executor:
+                    records = list(tqdm(executor.map(_prepare_mask_worker, tasks, chunksize=1), total=len(tasks), desc="plus_masks", unit="crack"))
+                actual_workers = workers
+            except OSError as exc:
+                print({"stage": "plus_prepare_masks", "warning": "process_pool_unavailable_falling_back_to_single_worker", "error": str(exc)})
+                actual_workers = 1
+                records = [_prepare_mask_worker(task) for task in tqdm(tasks, desc="plus_masks", unit="crack")]
     summary = {
         "stage": "plus_prepare_masks",
         "source_manifest": str(manifest_path),
@@ -73,6 +107,9 @@ def main() -> None:
         "dry_run": args.dry_run,
         "crack_count": len(cracks),
         "domains": sorted({row.get("dataset_group", row.get("domain", "")) for row in cracks}),
+        "workers": args.workers,
+        "actual_workers": actual_workers,
+        "skip_existing": args.skip_existing,
     }
     if not args.dry_run:
         write_csv_records(output_root / "masks" / "masks_manifest.csv", records)

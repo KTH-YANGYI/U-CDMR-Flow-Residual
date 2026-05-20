@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from argparse import ArgumentParser
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 try:
@@ -16,6 +17,19 @@ from ucdmr_flow_residual_plus.config import load_config, resolve_dataset_root, r
 from ucdmr_flow_residual_plus.pseudo_normal import prepare_pseudo_normal_plus
 
 
+def _prepare_pseudo_worker(task: tuple[dict[str, str], Path, Path, str, float, float, bool]) -> dict[str, object]:
+    row, dataset_root, output_root, method, max_outside_l1, min_quality_score, skip_existing = task
+    return prepare_pseudo_normal_plus(
+        row,
+        dataset_root=dataset_root,
+        output_root=output_root,
+        method=method,
+        max_outside_l1=max_outside_l1,
+        min_quality_score=min_quality_score,
+        skip_existing=skip_existing,
+    )
+
+
 def build_parser() -> ArgumentParser:
     parser = ArgumentParser(description="Build plus pseudo-normal images from real crack images.")
     add_common_args(parser)
@@ -24,6 +38,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--method", default="opencv_telea")
     parser.add_argument("--max-outside-l1", type=float, default=1.0)
     parser.add_argument("--min-quality-score", type=float, default=0.0)
+    parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--skip-existing", action="store_true")
     return parser
 
 
@@ -49,18 +65,33 @@ def main() -> None:
     if args.max_samples is not None:
         rows = rows[: args.max_samples]
     records = []
+    actual_workers = 0
     if not args.dry_run:
-        records = [
-            prepare_pseudo_normal_plus(
+        tasks = [
+            (
                 row,
-                dataset_root=dataset_root,
-                output_root=output_root,
-                method=args.method,
-                max_outside_l1=args.max_outside_l1,
-                min_quality_score=args.min_quality_score,
+                dataset_root,
+                output_root,
+                args.method,
+                args.max_outside_l1,
+                args.min_quality_score,
+                args.skip_existing,
             )
-            for row in tqdm(rows, desc="plus_pseudo", unit="crack")
+            for row in rows
         ]
+        workers = max(1, min(args.workers, len(tasks))) if tasks else 1
+        if workers == 1:
+            actual_workers = 1 if tasks else 0
+            records = [_prepare_pseudo_worker(task) for task in tqdm(tasks, desc="plus_pseudo", unit="crack")]
+        else:
+            try:
+                with ProcessPoolExecutor(max_workers=workers) as executor:
+                    records = list(tqdm(executor.map(_prepare_pseudo_worker, tasks, chunksize=1), total=len(tasks), desc="plus_pseudo", unit="crack"))
+                actual_workers = workers
+            except OSError as exc:
+                print({"stage": "plus_prepare_pseudo_normal", "warning": "process_pool_unavailable_falling_back_to_single_worker", "error": str(exc)})
+                actual_workers = 1
+                records = [_prepare_pseudo_worker(task) for task in tqdm(tasks, desc="plus_pseudo", unit="crack")]
     summary = {
         "stage": "plus_prepare_pseudo_normal",
         "masks_manifest": str(masks_manifest),
@@ -68,6 +99,9 @@ def main() -> None:
         "dry_run": args.dry_run,
         "row_count": len(rows),
         "accepted_count": sum(1 for row in records if row.get("pseudo_quality_accepted") == "1"),
+        "workers": args.workers,
+        "actual_workers": actual_workers,
+        "skip_existing": args.skip_existing,
     }
     if not args.dry_run:
         write_csv_records(output_root / "pseudo_normal" / "pseudo_manifest.csv", records)

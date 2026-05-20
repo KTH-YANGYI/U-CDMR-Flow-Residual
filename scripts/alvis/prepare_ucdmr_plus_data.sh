@@ -7,6 +7,9 @@ DATA_ROOT="${DATA_ROOT:-$ROOT/data/dataset0505_crop640_roi_dphone}"
 OUT_ROOT="${OUT_ROOT:-$ROOT/runs/u_cdmr_flow_residual_plus}"
 PYTHON_MODULE="${PYTHON_MODULE:-Python/3.12.3-GCCcore-13.3.0}"
 EXTRA_MODULES="${EXTRA_MODULES:-SciPy-bundle/2024.05-gfbf-2024a Pillow/10.4.0-GCCcore-13.3.0 PyYAML/6.0.2-GCCcore-13.3.0}"
+PREP_WORKERS_DEFAULT="${SLURM_CPUS_ON_NODE:-${SLURM_CPUS_PER_TASK:-32}}"
+MASK_WORKERS="${MASK_WORKERS:-$PREP_WORKERS_DEFAULT}"
+PSEUDO_WORKERS="${PSEUDO_WORKERS:-$PREP_WORKERS_DEFAULT}"
 
 cd "$CODE_DIR"
 module purge
@@ -24,11 +27,14 @@ python -m ucdmr_flow_residual_plus.cli.prepare_splits \
 python -m ucdmr_flow_residual_plus.cli.prepare_masks \
   --dataset-root "$DATA_ROOT" \
   --output-root "$OUT_ROOT" \
-  --split train
+  --split train \
+  --workers "$MASK_WORKERS" \
+  --skip-existing
 
 python -m ucdmr_flow_residual_plus.cli.prepare_pseudo_normal \
   --dataset-root "$DATA_ROOT" \
   --output-root "$OUT_ROOT" \
   --split train \
-  --method "${INPAINT_METHOD:-opencv_telea}"
-
+  --method "${INPAINT_METHOD:-opencv_telea}" \
+  --workers "$PSEUDO_WORKERS" \
+  --skip-existing

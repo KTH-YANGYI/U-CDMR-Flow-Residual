@@ -62,6 +62,7 @@ def prepare_pseudo_normal_plus(
     method: str,
     max_outside_l1: float,
     min_quality_score: float,
+    skip_existing: bool = False,
 ) -> dict[str, object]:
     sample_id = row["sample_id"]
     crack_path = dataset_path(dataset_root, row["dataset_relative_path"])
@@ -77,10 +78,13 @@ def prepare_pseudo_normal_plus(
     ensure_dir(pseudo_path.parent)
     ensure_dir(abs_diff_path.parent)
     ensure_dir(mask_path.parent)
-    Image.fromarray(pseudo, mode="RGB").save(pseudo_path)
+    if not (skip_existing and pseudo_path.exists()):
+        Image.fromarray(pseudo, mode="RGB").save(pseudo_path)
     diff = gray_from_rgb(np.abs(crack.astype(np.float32) - pseudo.astype(np.float32)))
-    Image.fromarray(np.clip(diff, 0, 255).astype(np.uint8), mode="L").save(abs_diff_path)
-    save_mask(mask_path, inpaint_mask)
+    if not (skip_existing and abs_diff_path.exists()):
+        Image.fromarray(np.clip(diff, 0, 255).astype(np.uint8), mode="L").save(abs_diff_path)
+    if not (skip_existing and mask_path.exists()):
+        save_mask(mask_path, inpaint_mask)
     accepted = float(metrics["outside_l1"]) <= max_outside_l1 and float(metrics["pseudo_quality_score"]) >= min_quality_score
     return {
         **row,

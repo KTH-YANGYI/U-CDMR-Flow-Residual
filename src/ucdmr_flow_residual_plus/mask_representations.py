@@ -204,6 +204,7 @@ def prepare_plus_masks(
     gate_radius: int,
     gate_blur: float,
     sdf_clip: float,
+    skip_existing: bool = False,
 ) -> dict[str, object]:
     if row.get("label") != "crack":
         raise ValueError("prepare_plus_masks expects a crack row")
@@ -226,10 +227,11 @@ def prepare_plus_masks(
     paths: dict[str, Path] = {}
     for name, mask in regions.items():
         path = output_root / name / f"{sample_id}.png"
-        if mask.dtype == bool:
-            save_mask(path, mask)
-        else:
-            save_float_mask(path, mask)
+        if not (skip_existing and path.exists()):
+            if mask.dtype == bool:
+                save_mask(path, mask)
+            else:
+                save_float_mask(path, mask)
         paths[f"{name}_path"] = path
 
     ys, xs = np.where(raw)
