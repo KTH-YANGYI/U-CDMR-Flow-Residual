@@ -5,30 +5,30 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crack-synth"
 version = "0.1.0"
-description = "Task-oriented crack synthesis workspace with a diffusion baseline method."
+description = "U-CDMR-Flow-Residual+ tooling for native-resolution contact-wire crack synthesis."
 readme = "README.md"
-requires-python = ">=3.10,<3.12"
+requires-python = ">=3.10"
 dependencies = [
-  "accelerate>=0.30",
-  "diffusers>=0.29",
   "numpy>=1.24",
-  "opencv-python-headless>=4.8",
-  "pandas>=2.0",
-  "peft>=0.11",
   "Pillow>=10.0",
   "PyYAML>=6.0",
-  "safetensors>=0.4",
-  "torchvision>=0.16",
   "tqdm>=4.66",
-  "transformers>=4.41",
 ]
 
 [project.scripts]
-prepare_rois = "crack_synth.methods.diffusion_baseline.prepare_rois:main"
-generate_baseline = "crack_synth.methods.diffusion_baseline.generate_baseline:main"
-evaluate_generation = "crack_synth.methods.diffusion_baseline.evaluate_generation:main"
-prepare_lora_data = "crack_synth.methods.diffusion_lora.prepare_lora_data:main"
-train_inpaint_lora = "crack_synth.methods.diffusion_lora.train_inpaint_lora:main"
+ucdmr_plus_prepare_manifest = "ucdmr_flow_residual_plus.cli.prepare_manifest:main"
+ucdmr_plus_prepare_splits = "ucdmr_flow_residual_plus.cli.prepare_splits:main"
+ucdmr_plus_prepare_masks = "ucdmr_flow_residual_plus.cli.prepare_masks:main"
+ucdmr_plus_domain_stats = "ucdmr_flow_residual_plus.cli.domain_stats:main"
+ucdmr_plus_prepare_pseudo_normal = "ucdmr_flow_residual_plus.cli.prepare_pseudo_normal:main"
+ucdmr_plus_train_teacher = "ucdmr_flow_residual_plus.cli.train_teacher:main"
+ucdmr_plus_train_residual_renderer = "ucdmr_flow_residual_plus.cli.train_residual_renderer:main"
+ucdmr_plus_train_mask_descriptor_flow = "ucdmr_flow_residual_plus.cli.train_mask_descriptor_flow:main"
+ucdmr_plus_sample_masks = "ucdmr_flow_residual_plus.cli.sample_masks:main"
+ucdmr_plus_generate_synthetic = "ucdmr_flow_residual_plus.cli.generate_synthetic:main"
+ucdmr_plus_filter_synthetic = "ucdmr_flow_residual_plus.cli.filter_synthetic:main"
+ucdmr_plus_train_downstream = "ucdmr_flow_residual_plus.cli.train_downstream:main"
+ucdmr_plus_eval_downstream = "ucdmr_flow_residual_plus.cli.eval_downstream:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

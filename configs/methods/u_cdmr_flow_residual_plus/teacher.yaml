@@ -1,0 +1,13 @@
+model:
+  encoder: resnet34
+  pretrained: true
+loss:
+  bce: 1.0
+  dice: 1.0
+  focal: 0.5
+  pos_weight: 8.0
+training:
+  split: train
+  synthetic: false
+  tile_size: 768
+

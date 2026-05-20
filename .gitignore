@@ -4,7 +4,10 @@ data
 .venv/
 .venv_broken_*/
 artifacts/
+runs/
+preprocessed_pairs/
 __pycache__/
 *.egg-info/
 *.pdf
+.DS_Store
 docs/Notes.txt

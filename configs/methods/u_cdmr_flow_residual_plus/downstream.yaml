@@ -1,0 +1,17 @@
+model:
+  encoder: resnet34
+  pretrained: true
+experiments:
+  - real_only
+  - real_plus_synthetic_0_5x
+  - real_plus_synthetic_1x
+  - real_plus_synthetic_2x
+metrics:
+  - dice
+  - iou
+  - precision
+  - recall
+  - boundary_f1
+  - normal_false_positive_rate
+  - per_domain
+  - per_size_bucket

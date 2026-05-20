@@ -1,0 +1,15 @@
+model:
+  encoder: resnet34
+  pretrained: true
+  style_dim: 16
+  base_channels: 48
+  condition_channels: 7
+training:
+  tile_size: 768
+  native_output: true
+  no_global_resize: true
+loss:
+  inside_l1: 1.0
+  outside_identity: 2.0
+  residual_leak: 2.0
+  edge: 0.3

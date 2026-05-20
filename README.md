@@ -1,159 +1,212 @@
-# Crack Synth Workspace
+# U-CDMR-Flow-Residual+
 
-本项目现在只保留一条清晰流程：使用一一配对的真实数据，在对应正常图上做 Stable Diffusion Inpainting 裂缝生成。
+This repository is now centered on the `U-CDMR-Flow-Residual+` pipeline for native-resolution contact-wire crack synthesis.
 
-旧流程中的 manifest、四折划分、normal pool 背景选择、manual case 都已经移除。
-
-## 数据结构
-
-默认数据集路径：
+The active method is:
 
 ```text
-C:/Users/18046/Desktop/master/masterthesis/dataset_real
+same-domain normal image
++ domain-conditioned crack mask
++ mask-gated crack residual
+= synthetic crack image + synthetic binary mask
 ```
 
-期望结构：
+Core formula:
 
 ```text
-dataset_real/
-├─ crack/
-│  ├─ 14_crop.jpg
-│  ├─ 14_crop.json
-│  └─ ...
-└─ normal/
-   ├─ 12_crop.jpg
-   └─ ...
+I_syn = I_normal + gate(M_syn) * Delta_crack
+Y_syn = M_syn
 ```
 
-每张缺陷图需要有一个同名 JSON 标注文件。每张缺陷图只对应一张正常图，模型会直接在对应正常图上做 inpainting。
+The generator does not repaint the full RGB image. It predicts only the local crack residual and blends it through a mask gate.
 
-数据集不提交到 GitHub。详细格式、配对规则和当前本地样本列表见：
+## Dataset Rules
+
+Default dataset:
 
 ```text
-docs/dataset_real_说明.md
+/Users/yangyi/Desktop/masterthesis/dataset0505_crop640_roi_dphone
 ```
 
-结果复现和查看说明见：
+Only these labels are used:
 
 ```text
-docs/results_preview.md
+crack
+normal
 ```
 
-## 配对规则
+`broken` is ignored for every active stage.
 
-代码会优先读取数据集根目录或 `mapping/` 子目录下的显式配对文件，例如：
-
-- `pairs.csv`
-- `pair_mapping.csv`
-- `crack_normal_pairs.csv`
-- `crack_normal_mapping.csv`
-- `mapping.csv`
-- 对应的 `.json` 版本
-
-如果没有显式配对文件，代码会按文件名中的数字排序后，将 `crack/` 和 `normal/` 一一配对。当前本地数据使用的就是这种 `sorted_filename_order` 配对方式。
-
-## 方法逻辑
-
-当前方法线是 `diffusion_baseline`，使用预训练 `Stable Diffusion Inpainting`。
-
-缺陷图不作为视觉条件输入模型，只用于：
-
-- 从 JSON 标注生成 raw mask
-- 确定 ROI 裁剪位置
-- 保存 `defect_roi.png` 作为对照
-
-模型输入是：
-
-- 对应正常图 ROI
-- `mask_edit_roi`
-- `prompt`
-- `negative_prompt`
-
-## 配置
-
-默认配置文件：
+Native resolution is preserved:
 
 ```text
-configs/methods/diffusion_baseline/contact_wire_v1.yaml
+camera: 640x640
+phone:  640x640
+dphone: 1408x2560
 ```
 
-主要配置项：
+dphone is not globally cropped or resized. Training may use tiles, but generated images, masks, predictions, and evaluation outputs stay on the native canvas.
 
-- `dataset_root`: 一一配对数据集根目录
-- `output_root`: ROI、生成结果和评估结果输出目录
-- `roi_out_size`: 输入模型的 ROI 尺寸
-- `mask_edit_dilate_px`: JSON raw mask 外扩像素半径
-- `seeds_per_pair`: 每对样本生成几张
-- `inference_batch_size`: 推理 batch size
+## Active Pipeline
 
-## CLI
+```text
+manifest_merged.csv
+  -> filter broken
+  -> domain/video split
+  -> LabelMe to masks
+  -> M_raw / M_inpaint / M_band / M_gate / skeleton / SDF / thickness
+  -> pseudo-normal from real crack images
+  -> pretrained-encoder residual renderer
+  -> optional descriptor Mask Flow
+  -> synthetic image-mask pairs
+  -> synthetic filter
+  -> teacher/downstream segmentation
+  -> real held-out evaluation
+```
 
-准备 ROI 和 mask：
+The active package is:
+
+```text
+src/ucdmr_flow_residual_plus/
+```
+
+Before using console commands locally, either install the repo or export `PYTHONPATH`:
 
 ```bash
-prepare_rois --config configs/methods/diffusion_baseline/contact_wire_v1.yaml
+python -m pip install -e .
+# or
+export PYTHONPATH="$PWD/src:${PYTHONPATH:-}"
 ```
 
-只检查生成计划，不加载模型：
-
-```bash
-generate_baseline --config configs/methods/diffusion_baseline/contact_wire_v1.yaml --plan-only
-```
-
-执行 inpainting：
-
-```bash
-generate_baseline --config configs/methods/diffusion_baseline/contact_wire_v1.yaml
-```
-
-评估最近一次生成：
-
-```bash
-evaluate_generation --latest --config configs/methods/diffusion_baseline/contact_wire_v1.yaml
-```
-
-## 产物
-
-`prepare_rois` 会生成：
+Default output:
 
 ```text
-artifacts/dataset_real/methods/diffusion_baseline/roi_assets/
+artifacts/dataset0505_crop640_roi_dphone/methods/u_cdmr_flow_residual_plus/
 ```
 
-关键文件：
+## Local Commands
 
-- `roi_pairs.jsonl`
-- `pairs/<pair_id>/defect_roi.png`
-- `pairs/<pair_id>/background_roi.png`
-- `pairs/<pair_id>/mask_raw_roi.png`
-- `pairs/<pair_id>/mask_edit_roi.png`
+Data preparation:
 
-`generate_baseline` 会生成：
+```bash
+ucdmr_plus_prepare_manifest
+ucdmr_plus_prepare_splits
+ucdmr_plus_prepare_masks
+ucdmr_plus_domain_stats
+ucdmr_plus_prepare_pseudo_normal
+```
+
+Training and generation:
+
+```bash
+ucdmr_plus_train_teacher
+ucdmr_plus_train_residual_renderer
+ucdmr_plus_train_mask_descriptor_flow
+ucdmr_plus_sample_masks
+ucdmr_plus_generate_synthetic
+ucdmr_plus_filter_synthetic
+ucdmr_plus_train_downstream
+ucdmr_plus_eval_downstream
+```
+
+Dry-run smoke checks:
+
+```bash
+python -m compileall src
+ucdmr_plus_prepare_manifest --dry-run
+ucdmr_plus_prepare_splits --dry-run
+ucdmr_plus_prepare_masks --dry-run --split train --max-samples 1
+ucdmr_plus_prepare_pseudo_normal --dry-run --split train --max-samples 1
+ucdmr_plus_train_teacher --dry-run
+ucdmr_plus_train_residual_renderer --dry-run
+ucdmr_plus_train_mask_descriptor_flow --dry-run
+ucdmr_plus_sample_masks --dry-run
+ucdmr_plus_generate_synthetic --dry-run
+ucdmr_plus_filter_synthetic --dry-run
+ucdmr_plus_train_downstream --dry-run
+ucdmr_plus_eval_downstream --dry-run
+```
+
+## Model Route
+
+Residual renderer:
 
 ```text
-artifacts/dataset_real/methods/diffusion_baseline/run_<timestamp>/
+I_context + mask representations + domain + style noise
+  -> pretrained visual encoder
+  -> residual decoder
+  -> Delta_rgb
 ```
 
-其中包含：
+The default encoder is ImageNet-pretrained `resnet34`. If pretrained weights are not cached on the node and cannot be loaded, training fails fast instead of silently switching to a random encoder. Use `--no-pretrained` only when you intentionally want a scratch baseline.
 
-- `planned_pairs.jsonl`
-- `outputs.jsonl`
-- `samples/<record_id>/image_syn.png`
-- `samples/<record_id>/background_roi.png`
-- `samples/<record_id>/mask_raw_roi.png`
-- `samples/<record_id>/mask_edit_roi.png`
-- `samples/<record_id>/metadata.json`
+Teacher/downstream segmenter:
 
-## 环境
+```text
+image
+  -> pretrained visual encoder
+  -> segmentation decoder
+  -> crack probability mask
+```
+
+Mask generator V1:
+
+```text
+real mask template bank
++ descriptor-level flow matching
++ resize / rotate / place
+```
+
+No FLUX / Stable Diffusion / full-image DiT is used in the active route.
+
+## Alvis
+
+Prepare plus artifacts:
 
 ```bash
-conda env create -f environment.yml
-conda activate crack-synth
-pip install -e .
+bash scripts/alvis/prepare_ucdmr_plus_data.sh
 ```
 
-如果服务器需要 CUDA 版 PyTorch，再单独安装对应轮子，例如：
+Train teacher and residual renderer:
 
 ```bash
-pip install torch --index-url https://download.pytorch.org/whl/cu121
+sbatch scripts/alvis/train_ucdmr_plus_teacher_2node_8gpu.slurm
+sbatch scripts/alvis/train_ucdmr_plus_residual_renderer_2node_8gpu.slurm
 ```
+
+Optional descriptor Mask Flow:
+
+```bash
+bash scripts/alvis/train_ucdmr_plus_mask_descriptor_flow.sh
+bash scripts/alvis/sample_ucdmr_plus_masks.sh
+```
+
+Generate/filter synthetic pairs:
+
+```bash
+bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
+bash scripts/alvis/filter_ucdmr_plus_synthetic.sh
+```
+
+Use descriptor-flow masks during generation:
+
+```bash
+MASK_SOURCE=descriptor_flow bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
+```
+
+Downstream comparison:
+
+```bash
+# real-only
+sbatch scripts/alvis/train_ucdmr_plus_downstream_2node_8gpu.slurm
+
+# real + synthetic
+USE_SYNTHETIC=1 sbatch scripts/alvis/train_ucdmr_plus_downstream_2node_8gpu.slurm
+
+# evaluation on real held-out data
+bash scripts/alvis/eval_ucdmr_plus_downstream.sh
+```
+
+The non-`sbatch` Alvis scripts refuse to run outside a Slurm allocation unless `ALLOW_LOGIN_NODE=1` is set for a tiny manual check.
+
+The Slurm scripts request two nodes and four A100 GPUs per node by default. Add the correct `#SBATCH --account=...` line before submitting if your allocation requires it.

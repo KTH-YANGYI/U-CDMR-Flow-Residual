@@ -1,0 +1,23 @@
+dataset:
+  root: /mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/ucdmr_flow_residual_plus/data/dataset0505_crop640_roi_dphone
+  manifest: manifest_merged.csv
+artifacts:
+  root: /mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/ucdmr_flow_residual_plus/runs/u_cdmr_flow_residual_plus
+masks:
+  inpaint_radius:
+    camera: 9
+    phone: 9
+    dphone: 11
+  band_radius:
+    camera: 5
+    phone: 5
+    dphone: 7
+  gate_radius:
+    camera: 7
+    phone: 7
+    dphone: 9
+  gate_blur:
+    camera: 3
+    phone: 3
+    dphone: 4
+
