@@ -18,6 +18,6 @@ loss:
   outside_mse: 0.25
   velocity_leak: 1.0
 sampling:
-  sampler: euler
+  sampler: heun
   steps: 32
   formula: I_syn = I_normal + gate(M_syn) * Delta_flow

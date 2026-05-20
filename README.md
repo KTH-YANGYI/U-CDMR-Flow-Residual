@@ -14,11 +14,11 @@ same-domain normal image
 Core formula:
 
 ```text
-I_syn = I_normal + gate(M_syn) * Delta_crack
+I_syn = I_normal + gate(M_syn) * Delta_flow
 Y_syn = M_syn
 ```
 
-The generator does not repaint the full RGB image. It predicts only the local crack residual and blends it through a mask gate.
+The generator does not repaint the full RGB image. Residual Flow Matching samples only the local crack residual and blends it through a mask gate.
 
 ## Dataset Rules
 
@@ -99,8 +99,6 @@ ucdmr_plus_prepare_pseudo_normal
 Training and generation:
 
 ```bash
-# optional only if no existing segmentation teacher is available
-ucdmr_plus_train_teacher
 ucdmr_plus_train_residual_flow
 ucdmr_plus_train_mask_descriptor_flow
 ucdmr_plus_sample_masks
@@ -117,8 +115,8 @@ python -m compileall src
 ucdmr_plus_prepare_manifest --dry-run
 ucdmr_plus_prepare_splits --dry-run
 ucdmr_plus_prepare_masks --dry-run --split train --max-samples 1
+ucdmr_plus_domain_stats --dry-run
 ucdmr_plus_prepare_pseudo_normal --dry-run --split train --max-samples 1
-ucdmr_plus_train_teacher --dry-run
 ucdmr_plus_train_residual_flow --dry-run
 ucdmr_plus_train_mask_descriptor_flow --dry-run
 ucdmr_plus_sample_masks --dry-run
@@ -127,6 +125,8 @@ ucdmr_plus_filter_synthetic --dry-run
 ucdmr_plus_train_downstream --dry-run
 ucdmr_plus_eval_downstream --dry-run
 ```
+
+Dry-runs do not write new manifests or masks. For a fresh local run, execute the data preparation commands without `--dry-run` before training or generation. If old files already exist under `artifacts/`, dry-runs may summarize those cached files.
 
 ## Model Route
 
@@ -147,14 +147,21 @@ I_syn = I_normal + gate(M_syn) * Delta_flow
 Y_syn = M_syn
 ```
 
-Teacher/downstream segmenter:
+Existing teacher checkpoint for filtering only:
 
 ```text
-image
-  -> pretrained visual encoder
-  -> segmentation decoder
-  -> crack probability mask
+synthetic image
+  -> legacy m4 skip-gate UNet checkpoint
+  -> teacher Dice / recall / false-positive score
 ```
+
+The teacher is not trained as part of the default route. It reuses the existing `UNET_two_stage` checkpoint:
+
+```text
+/mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/UNET_two_stage/outputs/experiments/811_fixed_split/phase2_architecture_full_single_seed/811_m4_skip_d4d3_s20260515/stage2/best_stage2.pt
+```
+
+The repository still contains `ucdmr_plus_train_teacher` and `scripts/alvis/train_ucdmr_plus_teacher_2node_8gpu.slurm` as fallback tools, but they are not part of the active route.
 
 Mask generator V1:
 
@@ -187,6 +194,16 @@ Optional descriptor Mask Flow:
 ```bash
 bash scripts/alvis/train_ucdmr_plus_mask_descriptor_flow.sh
 bash scripts/alvis/sample_ucdmr_plus_masks.sh
+```
+
+Default generation uses descriptor-flow masks and residual flow:
+
+```text
+mask_source = descriptor_flow
+residual_source = flow
+flow_steps = 32
+flow_sampler = heun
+flow_sigma = 0.35
 ```
 
 Generate/filter synthetic pairs:
