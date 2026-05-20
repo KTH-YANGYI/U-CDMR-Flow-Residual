@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "crack-synth"
 version = "0.1.0"
-description = "U-CDMR-Flow-Residual+ tooling for native-resolution contact-wire crack synthesis."
+description = "U-CDMR-Flow-Residual+ tooling for domain-conditioned device crack image-mask pair generation."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

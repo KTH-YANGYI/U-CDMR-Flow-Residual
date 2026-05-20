@@ -1,6 +1,6 @@
 # U-CDMR-Flow-Residual+
 
-This repository is now centered on the `U-CDMR-Flow-Residual+` pipeline for native-resolution contact-wire crack synthesis.
+This repository is now centered on the `U-CDMR-Flow-Residual+` pipeline for native-resolution device/screen crack synthesis.
 
 The active method is:
 
