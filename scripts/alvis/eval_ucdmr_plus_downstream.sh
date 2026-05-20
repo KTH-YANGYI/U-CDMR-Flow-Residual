@@ -9,7 +9,7 @@ PYTORCH_MODULE="${PYTORCH_MODULE:-PyTorch/2.7.1-foss-2024a-CUDA-12.6.0}"
 EXTRA_MODULES="${EXTRA_MODULES:-SciPy-bundle/2024.05-gfbf-2024a Pillow/10.4.0-GCCcore-13.3.0 PyYAML/6.0.2-GCCcore-13.3.0}"
 
 if [[ -z "${SLURM_JOB_ID:-}" && "${ALLOW_LOGIN_NODE:-0}" != "1" ]]; then
-  echo "Refusing to run downstream evaluation outside a Slurm allocation. Use salloc/sbatch, or set ALLOW_LOGIN_NODE=1 for a small dry check." >&2
+  echo "Refusing to run downstream evaluation outside a Slurm allocation. Use salloc/sbatch, or set ALLOW_LOGIN_NODE=1 only for a tiny manual run." >&2
   exit 2
 fi
 

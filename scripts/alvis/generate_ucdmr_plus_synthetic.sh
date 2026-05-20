@@ -14,7 +14,7 @@ TEACHER_SOURCE_ROOT="${TEACHER_SOURCE_ROOT:-/mimer/NOBACKUP/groups/smart-rail/Yi
 TEACHER_CHECKPOINT="${TEACHER_CHECKPOINT:-$TEACHER_SOURCE_ROOT/outputs/experiments/811_fixed_split/phase2_architecture_full_single_seed/811_m4_skip_d4d3_s20260515/stage2/best_stage2.pt}"
 
 if [[ -z "${SLURM_JOB_ID:-}" && "${ALLOW_LOGIN_NODE:-0}" != "1" ]]; then
-  echo "Refusing to run synthetic generation outside a Slurm allocation. Use salloc/sbatch, or set ALLOW_LOGIN_NODE=1 for a small dry check." >&2
+  echo "Refusing to run synthetic generation outside a Slurm allocation. Use salloc/sbatch, or set ALLOW_LOGIN_NODE=1 only for a tiny manual run." >&2
   exit 2
 fi
 

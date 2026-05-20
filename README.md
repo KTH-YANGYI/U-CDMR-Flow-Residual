@@ -215,6 +215,6 @@ USE_SYNTHETIC=1 sbatch scripts/alvis/train_ucdmr_plus_downstream_2node_8gpu.slur
 bash scripts/alvis/eval_ucdmr_plus_downstream.sh
 ```
 
-The non-`sbatch` Alvis scripts refuse to run outside a Slurm allocation unless `ALLOW_LOGIN_NODE=1` is set for a tiny manual check.
+The non-`sbatch` Alvis scripts refuse to run outside a Slurm allocation unless `ALLOW_LOGIN_NODE=1` is set for a tiny manual run. For dry checks, call the Python CLI with `--dry-run` directly.
 
 The Slurm scripts request two nodes and four A100 GPUs per node by default. Add the correct `#SBATCH --account=...` line before submitting if your allocation requires it.
