@@ -9,5 +9,5 @@ loss:
 training:
   split: train
   synthetic: false
-  tile_size: 768
-
+  image_mode: full_native
+  no_training_crop: true

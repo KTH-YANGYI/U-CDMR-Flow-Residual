@@ -9,9 +9,10 @@ training:
   x1: gate_masked_real_crack_minus_pseudo_normal
   x0: gate_masked_gaussian_noise
   flow_sigma: 1.0
-  tile_size: 768
+  image_mode: full_native
   native_output: true
   no_global_resize: true
+  no_training_crop: true
 loss:
   flow_mse: 1.0
   outside_mse: 0.25

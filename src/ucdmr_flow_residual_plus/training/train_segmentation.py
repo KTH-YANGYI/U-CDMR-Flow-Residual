@@ -24,7 +24,7 @@ def dry_run_summary(args: Any, *, stage_name: str) -> dict[str, object]:
         "split": args.split,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
-        "tile_size": args.tile_size,
+        "image_mode": "full_native",
         "distributed_launcher": "torchrun/slurm_env",
         "dry_run": True,
     }
@@ -57,7 +57,7 @@ def train(args: Any, *, stage_name: str) -> None:
         raise SystemExit("PyTorch is required for plus segmentation training.") from exc
 
     from ucdmr_flow_residual_plus.models.segmentation import SegmenterPlus
-    from ucdmr_flow_residual_plus.training.datasets import PlusSegmentationDataset
+    from ucdmr_flow_residual_plus.training.datasets import PlusSegmentationDataset, native_collate
     from ucdmr_flow_residual_plus.training.distributed import barrier, cleanup, init_distributed
     from ucdmr_flow_residual_plus.training.losses import segmentation_loss
 
@@ -77,13 +77,12 @@ def train(args: Any, *, stage_name: str) -> None:
         real_rows=real_rows,
         synthetic_rows=synthetic_rows,
         dataset_root=dataset_root,
-        tile_size=args.tile_size,
         samples_per_epoch=args.samples_per_epoch,
         seed=args.seed,
         synthetic_weight=args.synthetic_weight,
     )
     sampler = DistributedSampler(dataset, shuffle=True, drop_last=True) if state.distributed else None
-    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, shuffle=sampler is None, num_workers=args.workers, pin_memory=torch.cuda.is_available(), drop_last=True)
+    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, shuffle=sampler is None, num_workers=args.workers, pin_memory=torch.cuda.is_available(), drop_last=True, collate_fn=native_collate)
     model = SegmenterPlus(encoder_name=args.encoder, pretrained=args.pretrained, base_channels=args.base_channels).to(state.device)
     if state.distributed:
         model = DistributedDataParallel(model, device_ids=[state.local_rank] if torch.cuda.is_available() else None)
@@ -99,10 +98,11 @@ def train(args: Any, *, stage_name: str) -> None:
         for step, batch in enumerate(loader):
             image = batch["image"].to(state.device, non_blocking=True)
             mask = batch["mask"].to(state.device, non_blocking=True)
+            valid_mask = batch["valid_mask"].to(state.device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
                 logits = model(image)
-                loss, parts = segmentation_loss(torch, logits, mask, bce_weight=args.bce_weight, dice_weight=args.dice_weight, focal_weight=args.focal_weight, pos_weight=args.pos_weight)
+                loss, parts = segmentation_loss(torch, logits, mask, valid_mask=valid_mask, bce_weight=args.bce_weight, dice_weight=args.dice_weight, focal_weight=args.focal_weight, pos_weight=args.pos_weight)
             scaler.scale(loss).backward()
             if args.grad_clip > 0:
                 scaler.unscale_(optimizer)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import random
+from typing import Any
 
 import numpy as np
 from PIL import Image
@@ -36,42 +37,46 @@ def load_mask01(path: str | Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("L"), dtype=np.float32) / 255.0
 
 
-def crop(arr: np.ndarray, x: int, y: int, size: int) -> np.ndarray:
-    if arr.ndim == 2:
-        return arr[y : y + size, x : x + size]
-    return arr[y : y + size, x : x + size, :]
-
-
-def crop_fixed(arr: np.ndarray, x: int, y: int, size: int, *, pad_value: float = 0.0, image_pad: bool = False) -> np.ndarray:
-    if arr.ndim not in {2, 3}:
-        raise ValueError(f"Expected 2D/3D array, got shape={arr.shape}")
-    cropped = crop(arr, x, y, size)
-    pad_h = max(0, size - cropped.shape[0])
-    pad_w = max(0, size - cropped.shape[1])
+def _pad_chw(arr: np.ndarray, height: int, width: int, *, image_pad: bool) -> np.ndarray:
+    pad_h = max(0, height - arr.shape[-2])
+    pad_w = max(0, width - arr.shape[-1])
     if pad_h == 0 and pad_w == 0:
-        return cropped
-    pad_spec: tuple[tuple[int, int], ...]
-    if arr.ndim == 2:
-        pad_spec = ((0, pad_h), (0, pad_w))
-    else:
-        pad_spec = ((0, pad_h), (0, pad_w), (0, 0))
-    if image_pad and cropped.size:
-        return np.pad(cropped, pad_spec, mode="edge")
-    return np.pad(cropped, pad_spec, mode="constant", constant_values=pad_value)
+        return arr
+    pad_spec = ((0, 0), (0, pad_h), (0, pad_w))
+    if image_pad:
+        return np.pad(arr, pad_spec, mode="edge")
+    return np.pad(arr, pad_spec, mode="constant", constant_values=0.0)
 
 
-def choose_crop(width: int, height: int, mask: np.ndarray, rng: random.Random, size: int, focus_probability: float) -> tuple[int, int]:
-    if rng.random() < focus_probability and np.any(mask > 0.5):
-        ys, xs = np.where(mask > 0.5)
-        pick = rng.randrange(len(xs))
-        cx = int(xs[pick])
-        cy = int(ys[pick])
-    else:
-        cx = rng.randrange(width)
-        cy = rng.randrange(height)
-    x = max(0, min(width - size, cx - size // 2))
-    y = max(0, min(height - size, cy - size // 2))
-    return x, y
+def native_collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    import torch
+
+    max_hw_by_key: dict[str, tuple[int, int]] = {}
+    for item in batch:
+        for key, value in item.items():
+            if isinstance(value, np.ndarray) and value.ndim == 3:
+                h, w = int(value.shape[-2]), int(value.shape[-1])
+                old_h, old_w = max_hw_by_key.get(key, (0, 0))
+                max_hw_by_key[key] = (max(old_h, h), max(old_w, w))
+
+    out: dict[str, Any] = {}
+    for key in batch[0]:
+        values = [item[key] for item in batch]
+        first = values[0]
+        if isinstance(first, np.ndarray):
+            if first.ndim == 3:
+                h, w = max_hw_by_key[key]
+                image_pad = key in {"context", "target", "image"}
+                out[key] = torch.from_numpy(np.stack([_pad_chw(value, h, w, image_pad=image_pad) for value in values], axis=0))
+            else:
+                out[key] = torch.from_numpy(np.stack(values, axis=0))
+        elif isinstance(first, (int, np.integer)):
+            out[key] = torch.tensor(values, dtype=torch.long)
+        elif isinstance(first, (float, np.floating)):
+            out[key] = torch.tensor(values, dtype=torch.float32)
+        else:
+            out[key] = values
+    return out
 
 
 class PlusResidualDataset:
@@ -80,10 +85,8 @@ class PlusResidualDataset:
         *,
         pseudo_rows: list[dict[str, str]],
         dataset_root: Path,
-        tile_size: int,
         samples_per_epoch: int,
         seed: int,
-        focus_probability: float = 0.85,
         style_dim: int = 16,
         style_dropout: float = 0.5,
     ) -> None:
@@ -91,10 +94,8 @@ class PlusResidualDataset:
             raise ValueError("No pseudo-normal rows were provided")
         self.rows = pseudo_rows
         self.dataset_root = dataset_root
-        self.tile_size = int(tile_size)
         self.samples_per_epoch = int(samples_per_epoch)
         self.seed = int(seed)
-        self.focus_probability = float(focus_probability)
         self.style_dim = int(style_dim)
         self.style_dropout = float(style_dropout)
 
@@ -107,21 +108,22 @@ class PlusResidualDataset:
         target = load_rgb01(dataset_path(self.dataset_root, row["dataset_relative_path"]))
         context = load_rgb01(resolve_existing(row["pseudo_image_path"]))
         height, width = target.shape[:2]
-        m_raw = load_mask01(resolve_existing(row["m_raw_path"]))
-        size = self.tile_size
-        x, y = choose_crop(width, height, m_raw, rng, size, self.focus_probability)
-        conditions = [crop_fixed(load_mask01(resolve_existing(row[key])), x, y, size) for key in CONDITION_KEYS]
+        conditions = [load_mask01(resolve_existing(row[key])) for key in CONDITION_KEYS]
+        target_chw = np.transpose(target, (2, 0, 1)).astype(np.float32)
+        context_chw = np.transpose(context, (2, 0, 1)).astype(np.float32)
+        valid_mask = np.ones((1, height, width), dtype=np.float32)
         style = np.asarray([rng.gauss(0.0, 1.0) for _ in range(self.style_dim)], dtype=np.float32)
         if rng.random() < self.style_dropout:
             style[:] = 0.0
         domain = row.get("domain", row.get("dataset_group", ""))
         return {
-            "context": np.transpose(crop_fixed(context, x, y, size, image_pad=True), (2, 0, 1)).astype(np.float32),
-            "target": np.transpose(crop_fixed(target, x, y, size, image_pad=True), (2, 0, 1)).astype(np.float32),
+            "context": context_chw,
+            "target": target_chw,
             "condition": np.stack(conditions, axis=0).astype(np.float32),
             "m_raw": conditions[M_RAW_INDEX][None, ...].astype(np.float32),
             "m_band": conditions[M_BAND_INDEX][None, ...].astype(np.float32),
             "m_gate": conditions[M_GATE_INDEX][None, ...].astype(np.float32),
+            "valid_mask": valid_mask,
             "style": style,
             "domain_idx": DOMAIN_TO_INDEX.get(domain, 0),
         }
@@ -151,10 +153,8 @@ class PlusSegmentationDataset:
         real_rows: list[dict[str, str]],
         synthetic_rows: list[dict[str, str]],
         dataset_root: Path,
-        tile_size: int,
         samples_per_epoch: int,
         seed: int,
-        focus_probability: float = 0.8,
         synthetic_weight: int = 1,
     ) -> None:
         self.samples: list[dict[str, object]] = []
@@ -166,16 +166,13 @@ class PlusSegmentationDataset:
         if not self.samples:
             raise ValueError("No segmentation samples were provided")
         self.dataset_root = dataset_root
-        self.tile_size = int(tile_size)
         self.samples_per_epoch = int(samples_per_epoch)
         self.seed = int(seed)
-        self.focus_probability = float(focus_probability)
 
     def __len__(self) -> int:
         return self.samples_per_epoch
 
     def __getitem__(self, index: int) -> dict[str, np.ndarray | str]:
-        rng = random.Random(self.seed + index * 1000003)
         sample = self.samples[index % len(self.samples)]
         row = sample["row"]
         if not isinstance(row, dict):
@@ -187,10 +184,12 @@ class PlusSegmentationDataset:
             image, mask = load_real_segmentation(row, dataset_root=self.dataset_root)
             kind = f"real_{row.get('label', '')}"
         height, width = image.shape[:2]
-        size = self.tile_size
-        x, y = choose_crop(width, height, mask, rng, size, self.focus_probability)
+        image_chw = np.transpose(image, (2, 0, 1)).astype(np.float32)
+        mask_chw = mask[None, ...].astype(np.float32)
+        valid_mask = np.ones((1, height, width), dtype=np.float32)
         return {
-            "image": np.transpose(crop_fixed(image, x, y, size, image_pad=True), (2, 0, 1)).astype(np.float32),
-            "mask": crop_fixed(mask, x, y, size)[None, ...].astype(np.float32),
+            "image": image_chw,
+            "mask": mask_chw,
+            "valid_mask": valid_mask,
             "sample_kind": kind,
         }

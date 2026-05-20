@@ -55,11 +55,9 @@ srun --ntasks="$NNODES" --ntasks-per-node=1 bash -c '
       --split train \
       --encoder "${ENCODER:-resnet34}" \
       --epochs "${EPOCHS:-30}" \
-      --batch-size "${BATCH_SIZE:-4}" \
+      --batch-size "${BATCH_SIZE:-1}" \
       --workers "${WORKERS:-8}" \
-      --tile-size "${TILE_SIZE:-768}" \
       --samples-per-epoch "${SAMPLES_PER_EPOCH:-8192}" \
       '"$SYN_FLAG"' \
       --amp
 '
-

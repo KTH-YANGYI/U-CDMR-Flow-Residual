@@ -17,9 +17,8 @@ def add_segmentation_args(parser: ArgumentParser, *, include_synthetic_default: 
     parser.add_argument("--pretrained", action="store_true", default=True)
     parser.add_argument("--no-pretrained", action="store_false", dest="pretrained")
     parser.add_argument("--epochs", type=int, default=30)
-    parser.add_argument("--batch-size", type=int, default=4)
+    parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--workers", type=int, default=4)
-    parser.add_argument("--tile-size", type=int, default=768)
     parser.add_argument("--samples-per-epoch", type=int, default=4096)
     parser.add_argument("--base-channels", type=int, default=48)
     parser.add_argument("--lr", type=float, default=2e-4)
@@ -55,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

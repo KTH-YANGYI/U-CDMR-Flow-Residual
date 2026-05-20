@@ -23,7 +23,7 @@ def dry_run_summary(args: Any) -> dict[str, object]:
         "split": args.split,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
-        "tile_size": args.tile_size,
+        "image_mode": "full_native",
         "flow_sigma": args.flow_sigma,
         "distributed_launcher": "torchrun/slurm_env",
         "dry_run": True,
@@ -39,7 +39,7 @@ def train(args: Any) -> None:
         raise SystemExit("PyTorch is required for plus residual flow training.") from exc
 
     from ucdmr_flow_residual_plus.models.residual_flow import ResidualFlowUNet
-    from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, PlusResidualDataset
+    from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, PlusResidualDataset, native_collate
     from ucdmr_flow_residual_plus.training.distributed import barrier, cleanup, init_distributed
     from ucdmr_flow_residual_plus.training.losses import residual_flow_loss
 
@@ -69,14 +69,13 @@ def train(args: Any) -> None:
     dataset = PlusResidualDataset(
         pseudo_rows=rows,
         dataset_root=dataset_root,
-        tile_size=args.tile_size,
         samples_per_epoch=args.samples_per_epoch,
         seed=args.seed,
         style_dim=args.style_dim,
         style_dropout=args.style_dropout,
     )
     sampler = DistributedSampler(dataset, shuffle=True, drop_last=True) if state.distributed else None
-    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, shuffle=sampler is None, num_workers=args.workers, pin_memory=torch.cuda.is_available(), drop_last=True)
+    loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, shuffle=sampler is None, num_workers=args.workers, pin_memory=torch.cuda.is_available(), drop_last=True, collate_fn=native_collate)
     model = ResidualFlowUNet(
         condition_channels=CONDITION_CHANNELS,
         base_channels=args.base_channels,
@@ -101,11 +100,12 @@ def train(args: Any) -> None:
             condition = batch["condition"].to(state.device, non_blocking=True)
             m_band = batch["m_band"].to(state.device, non_blocking=True)
             m_gate = batch["m_gate"].to(state.device, non_blocking=True)
+            valid_mask = batch["valid_mask"].to(state.device, non_blocking=True)
             style = batch["style"].to(state.device, non_blocking=True)
             domain_idx = batch["domain_idx"].to(state.device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             with autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
-                gate_support = (m_gate > 0.0).to(dtype=target.dtype)
+                gate_support = ((m_gate > 0.0) & (valid_mask > 0.5)).to(dtype=target.dtype)
                 x1 = (target - context) * gate_support
                 x0 = torch.randn_like(x1) * float(args.flow_sigma) * gate_support
                 t = torch.rand((x1.shape[0], 1, 1, 1), device=state.device, dtype=x1.dtype)
@@ -118,6 +118,7 @@ def train(args: Any) -> None:
                     target_v=target_v,
                     m_band=m_band,
                     m_gate=m_gate,
+                    valid_mask=valid_mask,
                     lambda_flow=args.lambda_flow,
                     lambda_outside=args.lambda_outside,
                     lambda_leak=args.lambda_leak,

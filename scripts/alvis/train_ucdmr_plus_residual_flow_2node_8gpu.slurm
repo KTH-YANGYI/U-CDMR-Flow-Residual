@@ -48,9 +48,8 @@ srun --ntasks="$NNODES" --ntasks-per-node=1 bash -c '
       --pseudo-manifest "'"$OUT_ROOT"'/pseudo_normal/pseudo_manifest.csv" \
       --split train \
       --epochs "${EPOCHS:-30}" \
-      --batch-size "${BATCH_SIZE:-2}" \
+      --batch-size "${BATCH_SIZE:-1}" \
       --workers "${WORKERS:-8}" \
-      --tile-size "${TILE_SIZE:-768}" \
       --samples-per-epoch "${SAMPLES_PER_EPOCH:-8192}" \
       --flow-sigma "${FLOW_SIGMA:-1.0}" \
       --amp

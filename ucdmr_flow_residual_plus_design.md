@@ -46,7 +46,7 @@ phone:  640x640
 dphone: 1408x2560
 ```
 
-Training may use tiles, but generation and evaluation write full native-resolution outputs.
+Training uses full native-resolution images. Mixed-size batches may be padded inside the batch, but padding is masked out of the loss.
 
 ## Mask Branch
 

@@ -45,7 +45,7 @@ phone:  640x640
 dphone: 1408x2560
 ```
 
-dphone is not globally cropped or resized. Training may use tiles, but generated images, masks, predictions, and evaluation outputs stay on the native canvas.
+dphone is not globally cropped or resized. Training uses full native images. Mixed-size batches are padded only inside the batch, and padding is ignored by the loss.
 
 ## Active Pipeline
 
