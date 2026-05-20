@@ -122,16 +122,24 @@ Each generated sample records:
 residual_source = flow
 mask_source
 residual_flow_checkpoint
+mask_flow_checkpoint
 flow_steps
 flow_sampler
 flow_sigma
+flow_max_delta
 seed_residual
 seed_mask
 native_width
 native_height
+source_normal_path
 image_path
 mask_path
+synthetic_image_path
+synthetic_mask_path
 residual_path
+outside_change
+residual_leakage_score
+mask_residual_iou
 ```
 
 ## Validation

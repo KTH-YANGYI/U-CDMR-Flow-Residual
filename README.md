@@ -158,8 +158,8 @@ image
 Mask generator V1:
 
 ```text
-real mask template bank
-+ descriptor-level flow matching
+descriptor-level mask flow
++ same-domain real mask template bank
 + resize / rotate / place
 ```
 
@@ -194,10 +194,10 @@ bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 bash scripts/alvis/filter_ucdmr_plus_synthetic.sh
 ```
 
-Use descriptor-flow masks during generation:
+Descriptor-flow masks are the default generation route. Use mask-bank masks for a conservative baseline:
 
 ```bash
-MASK_SOURCE=descriptor_flow bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
+MASK_SOURCE=bank bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 ```
 
 Downstream comparison:

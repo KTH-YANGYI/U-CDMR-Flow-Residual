@@ -12,11 +12,14 @@ def build_parser() -> ArgumentParser:
     add_common_args(parser)
     parser.add_argument("--synthetic-manifest", type=Path, default=None)
     parser.add_argument("--filtered-output", type=Path, default=None)
+    parser.add_argument("--domain-thresholds", type=Path, default=None)
     parser.add_argument("--max-residual-leak", type=float, default=0.1)
     parser.add_argument("--max-outside-change", type=float, default=0.005)
     parser.add_argument("--min-mask-area", type=float, default=1e-6)
     parser.add_argument("--max-mask-area", type=float, default=0.08)
     parser.add_argument("--min-mask-residual-iou", type=float, default=0.01)
+    parser.add_argument("--min-teacher-dice", type=float, default=None)
+    parser.add_argument("--min-teacher-recall", type=float, default=None)
     return parser
 
 

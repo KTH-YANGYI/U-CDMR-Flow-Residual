@@ -22,7 +22,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--style-dropout", type=float, default=0.5)
     parser.add_argument("--time-dim", type=int, default=128)
     parser.add_argument("--max-velocity", type=float, default=0.0)
-    parser.add_argument("--flow-sigma", type=float, default=1.0)
+    parser.add_argument("--flow-sigma", type=float, default=0.35)
     parser.add_argument("--lr", type=float, default=2e-4)
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--lambda-flow", type=float, default=1.0)

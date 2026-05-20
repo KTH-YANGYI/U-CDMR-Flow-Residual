@@ -11,7 +11,7 @@ from PIL import Image
 from ucdmr_flow_residual_plus.image_utils import gray_from_rgb, save_mask
 from ucdmr_flow_residual_plus.io_utils import ensure_dir, read_csv_records, write_csv_records, write_json
 
-from ucdmr_flow_residual_plus.config import load_config, resolve_dataset_root, resolve_output_root
+from ucdmr_flow_residual_plus.config import load_config, nested_get, resolve_dataset_root, resolve_output_root
 from ucdmr_flow_residual_plus.constants import DOMAIN_TO_INDEX, resolve_existing
 from ucdmr_flow_residual_plus.paths import dataset_path
 from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, CONDITION_KEYS, M_GATE_INDEX, M_RAW_INDEX, load_mask01, load_rgb01
@@ -55,6 +55,7 @@ def _tiled_flow_delta(
     steps: int,
     sampler: str,
     sigma: float,
+    max_delta: float | None,
     seed: int,
 ) -> np.ndarray:
     height, width = image.shape[:2]
@@ -99,7 +100,10 @@ def _tiled_flow_delta(
             accum[y : y + tile_h, x : x + tile_w] += pred
             weights[y : y + tile_h, x : x + tile_w] += 1.0
             tile_index += 1
-    return accum / np.maximum(weights, 1.0)
+    delta = accum / np.maximum(weights, 1.0)
+    if max_delta is not None and max_delta > 0:
+        delta = np.clip(delta, -float(max_delta), float(max_delta))
+    return delta
 
 
 def dry_run_generate_summary(args: Any) -> dict[str, object]:
@@ -107,6 +111,7 @@ def dry_run_generate_summary(args: Any) -> dict[str, object]:
     output_root = resolve_output_root(config, args.output_root)
     masks_manifest = output_root / "sampled_masks" / "sampled_masks_manifest.csv" if args.mask_source == "descriptor_flow" else output_root / "masks" / "masks_manifest.csv"
     default_checkpoint = output_root / "residual_flow_plus" / "checkpoints" / "latest.pt"
+    mask_flow_checkpoint = args.mask_flow_checkpoint or output_root / "mask_descriptor_flow" / "checkpoints" / "latest.pt"
     return {
         "stage": "plus_generate_synthetic",
         "output_root": str(output_root),
@@ -114,9 +119,11 @@ def dry_run_generate_summary(args: Any) -> dict[str, object]:
         "checkpoint": str(args.checkpoint or default_checkpoint),
         "masks_manifest": str(args.masks_manifest or masks_manifest),
         "mask_source": args.mask_source,
+        "mask_flow_checkpoint": str(mask_flow_checkpoint) if args.mask_source == "descriptor_flow" else "",
         "flow_steps": args.flow_steps,
         "flow_sampler": args.flow_sampler,
         "flow_sigma": args.flow_sigma,
+        "flow_max_delta": args.flow_max_delta,
         "teacher_checkpoint": str(args.teacher_checkpoint or output_root / args.teacher_stage_name / "checkpoints" / "latest.pt"),
         "max_samples": args.max_samples,
         "dry_run": True,
@@ -142,13 +149,14 @@ def generate(args: Any) -> None:
     masks_manifest = Path(args.masks_manifest) if args.masks_manifest else default_masks
     default_checkpoint = output_root / "residual_flow_plus" / "checkpoints" / "latest.pt"
     checkpoint_path = Path(args.checkpoint) if args.checkpoint else default_checkpoint
+    mask_flow_checkpoint = Path(args.mask_flow_checkpoint) if args.mask_flow_checkpoint else output_root / "mask_descriptor_flow" / "checkpoints" / "latest.pt"
     synthetic_root = Path(args.synthetic_output) if args.synthetic_output else output_root / "synthetic" / "raw"
     ensure_dir(synthetic_root)
     normals = [row for row in read_csv_records(split_manifest) if row.get("label") == "normal" and row.get("split", args.split) == args.split]
     masks = [
         row
         for row in read_csv_records(masks_manifest)
-        if row.get("split") in {args.split, "generated"}
+        if row.get("split") in {args.split, "generated"} and row.get("label", "crack") != "broken"
     ]
     if args.max_samples is not None:
         normals = normals[: args.max_samples]
@@ -217,6 +225,7 @@ def generate(args: Any) -> None:
                 steps=args.flow_steps,
                 sampler=args.flow_sampler,
                 sigma=args.flow_sigma,
+                max_delta=args.flow_max_delta,
                 seed=sample_seed_residual,
             )
             gate = condition[M_GATE_INDEX]
@@ -254,15 +263,19 @@ def generate(args: Any) -> None:
                     "domain": domain,
                     "source_split": normal.get("split", ""),
                     "normal_source_path": normal["dataset_relative_path"],
+                    "source_normal_path": normal["dataset_relative_path"],
                     "mask_source_id": mask_row.get("sample_id", ""),
                     "native_width": width,
                     "native_height": height,
                     "mask_source": args.mask_source,
+                    "same_domain_only": "1",
                     "residual_source": "flow",
                     "residual_flow_checkpoint": str(checkpoint_path),
+                    "mask_flow_checkpoint": str(mask_flow_checkpoint) if args.mask_source == "descriptor_flow" else "",
                     "flow_steps": args.flow_steps,
                     "flow_sampler": args.flow_sampler,
                     "flow_sigma": args.flow_sigma,
+                    "flow_max_delta": args.flow_max_delta,
                     "seed_residual": sample_seed_residual,
                     "seed_mask": sample_seed_mask,
                     "m_raw_ratio": round(float(raw.mean()), 10),
@@ -270,6 +283,7 @@ def generate(args: Any) -> None:
                     "outside_change": round(outside_change, 8),
                     "inside_change": round(inside_change, 8),
                     "residual_leak": round(outside_change / max(inside_change, 1e-8), 8),
+                    "residual_leakage_score": round(outside_change / max(inside_change, 1e-8), 8),
                     "mask_residual_iou": round(mask_residual_iou, 8),
                     "teacher_dice": teacher_dice,
                     "teacher_recall_on_mask": teacher_recall,
@@ -277,6 +291,8 @@ def generate(args: Any) -> None:
                     "quality_score": "",
                     "image_path": str(image_path),
                     "mask_path": str(mask_path),
+                    "synthetic_image_path": str(image_path),
+                    "synthetic_mask_path": str(mask_path),
                     "residual_path": str(residual_path),
                     "generation_formula": "I_syn = I_normal + gate(M_syn) * Delta_flow",
                 }
@@ -300,6 +316,7 @@ def dry_run_filter_summary(args: Any) -> dict[str, object]:
     return {
         "stage": "plus_filter_synthetic",
         "synthetic_manifest": str(args.synthetic_manifest or output_root / "synthetic" / "raw" / "synthetic_manifest.csv"),
+        "domain_thresholds": str(args.domain_thresholds) if args.domain_thresholds else "config.filter.per_domain",
         "dry_run": True,
     }
 
@@ -313,28 +330,88 @@ def _float(value: object, default: float = 0.0) -> float:
         return default
 
 
+def _domain_thresholds(config: dict[str, Any], path: Path | None) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    config_thresholds = nested_get(config, ("filter", "per_domain"), {})
+    if isinstance(config_thresholds, dict):
+        merged.update(config_thresholds)
+    if path is not None:
+        file_config = load_config(path)
+        file_thresholds = nested_get(file_config, ("filter", "per_domain"), file_config.get("per_domain", file_config))
+        if isinstance(file_thresholds, dict):
+            merged.update(file_thresholds)
+    return merged
+
+
+def _threshold_for_domain(
+    *,
+    domain_thresholds: dict[str, Any],
+    domain: str,
+    key: str,
+    default: float | None,
+) -> float | None:
+    values = domain_thresholds.get(domain, {})
+    if isinstance(values, dict) and key in values and values[key] not in {"", None}:
+        return float(values[key])
+    return default
+
+
 def filter_synthetic(args: Any) -> None:
     config = load_config(args.config)
     output_root = resolve_output_root(config, args.output_root)
     synthetic_manifest = Path(args.synthetic_manifest) if args.synthetic_manifest else output_root / "synthetic" / "raw" / "synthetic_manifest.csv"
     output_dir = Path(args.filtered_output) if args.filtered_output else output_root / "synthetic" / "filtered"
     rows = read_csv_records(synthetic_manifest)
+    domain_thresholds = _domain_thresholds(config, args.domain_thresholds)
     scored = []
     kept = []
     for row in rows:
+        domain = row.get("domain", "")
+        max_residual_leak = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="max_residual_leak", default=args.max_residual_leak)
+        max_outside_change = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="max_outside_change", default=args.max_outside_change)
+        min_mask_area = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="min_mask_area", default=args.min_mask_area)
+        max_mask_area = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="max_mask_area", default=args.max_mask_area)
+        min_mask_residual_iou = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="min_mask_residual_iou", default=args.min_mask_residual_iou)
+        min_teacher_dice = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="min_teacher_dice", default=args.min_teacher_dice)
+        min_teacher_recall = _threshold_for_domain(domain_thresholds=domain_thresholds, domain=domain, key="min_teacher_recall", default=args.min_teacher_recall)
         leak = _float(row.get("residual_leak"), math.inf)
         outside = _float(row.get("outside_change"), math.inf)
         area = _float(row.get("mask_area_ratio"), 0.0)
         iou = _float(row.get("mask_residual_iou"), 0.0)
         teacher = _float(row.get("teacher_dice"), math.nan)
+        teacher_recall = _float(row.get("teacher_recall_on_mask"), math.nan)
         topology = _float(row.get("topology_score"), math.nan)
-        keep = leak <= args.max_residual_leak and outside <= args.max_outside_change and args.min_mask_area <= area <= args.max_mask_area and iou >= args.min_mask_residual_iou
-        score = 1.0 - min(leak / max(args.max_residual_leak, 1e-8), 2.0) * 0.3 - min(outside / max(args.max_outside_change, 1e-8), 2.0) * 0.3 + min(iou, 1.0) * 0.4
+        keep = (
+            leak <= float(max_residual_leak)
+            and outside <= float(max_outside_change)
+            and float(min_mask_area) <= area <= float(max_mask_area)
+            and iou >= float(min_mask_residual_iou)
+        )
+        if min_teacher_dice is not None and not math.isnan(teacher):
+            keep = keep and teacher >= float(min_teacher_dice)
+        if min_teacher_recall is not None and not math.isnan(teacher_recall):
+            keep = keep and teacher_recall >= float(min_teacher_recall)
+        score = 1.0 - min(leak / max(float(max_residual_leak), 1e-8), 2.0) * 0.3 - min(outside / max(float(max_outside_change), 1e-8), 2.0) * 0.3 + min(iou, 1.0) * 0.4
         if not math.isnan(teacher):
             score += min(max(teacher, 0.0), 1.0) * 0.1
+        if not math.isnan(teacher_recall):
+            score += min(max(teacher_recall, 0.0), 1.0) * 0.1
         if not math.isnan(topology):
             score += min(max(topology, 0.0), 1.0) * 0.1
-        record = {**row, "filter_keep": "1" if keep else "0", "quality_score": round(float(score), 8), "filter_reason": "kept" if keep else "threshold_failed"}
+        record = {
+            **row,
+            "filter_keep": "1" if keep else "0",
+            "quality_score": round(float(score), 8),
+            "filter_reason": "kept" if keep else "threshold_failed",
+            "filter_threshold_domain": domain,
+            "threshold_max_residual_leak": max_residual_leak,
+            "threshold_max_outside_change": max_outside_change,
+            "threshold_min_mask_area": min_mask_area,
+            "threshold_max_mask_area": max_mask_area,
+            "threshold_min_mask_residual_iou": min_mask_residual_iou,
+            "threshold_min_teacher_dice": "" if min_teacher_dice is None else min_teacher_dice,
+            "threshold_min_teacher_recall": "" if min_teacher_recall is None else min_teacher_recall,
+        }
         scored.append(record)
         if keep:
             kept.append(record)

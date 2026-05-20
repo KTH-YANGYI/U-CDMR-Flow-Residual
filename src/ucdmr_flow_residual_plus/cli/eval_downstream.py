@@ -17,7 +17,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--split", default="test")
     parser.add_argument("--device", default=None)
     parser.add_argument("--tile-size", type=int, default=768)
-    parser.add_argument("--tile-overlap", type=int, default=96)
+    parser.add_argument("--tile-overlap", type=int, default=128)
     parser.add_argument("--encoder", default=None)
     parser.add_argument("--base-channels", type=int, default=None)
     parser.add_argument("--threshold", type=float, default=0.5)

@@ -51,6 +51,6 @@ srun --ntasks="$NNODES" --ntasks-per-node=1 bash -c '
       --batch-size "${BATCH_SIZE:-1}" \
       --workers "${WORKERS:-8}" \
       --samples-per-epoch "${SAMPLES_PER_EPOCH:-8192}" \
-      --flow-sigma "${FLOW_SIGMA:-1.0}" \
+      --flow-sigma "${FLOW_SIGMA:-0.35}" \
       --amp
 '

@@ -20,4 +20,23 @@ masks:
     camera: 3
     phone: 3
     dphone: 4
-
+filter:
+  per_domain:
+    camera:
+      max_residual_leak: 0.1
+      max_outside_change: 0.005
+      min_mask_area: 0.000001
+      max_mask_area: 0.08
+      min_mask_residual_iou: 0.01
+    phone:
+      max_residual_leak: 0.1
+      max_outside_change: 0.005
+      min_mask_area: 0.000001
+      max_mask_area: 0.08
+      min_mask_residual_iou: 0.01
+    dphone:
+      max_residual_leak: 0.1
+      max_outside_change: 0.005
+      min_mask_area: 0.000001
+      max_mask_area: 0.08
+      min_mask_residual_iou: 0.01

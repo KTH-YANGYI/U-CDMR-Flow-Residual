@@ -26,5 +26,5 @@ python -m ucdmr_flow_residual_plus.cli.eval_downstream \
   --stage-name "${STAGE_NAME:-downstream_plus}" \
   --split "${SPLIT:-test}" \
   --tile-size "${TILE_SIZE:-768}" \
-  --tile-overlap "${TILE_OVERLAP:-96}" \
+  --tile-overlap "${TILE_OVERLAP:-128}" \
   --save-predictions
