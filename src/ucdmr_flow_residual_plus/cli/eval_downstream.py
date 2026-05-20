@@ -12,6 +12,7 @@ def build_parser() -> ArgumentParser:
     add_common_args(parser)
     parser.add_argument("--split-manifest", type=Path, default=None)
     parser.add_argument("--checkpoint", type=Path, default=None)
+    parser.add_argument("--teacher-source-root", type=Path, default=None)
     parser.add_argument("--eval-output", type=Path, default=None)
     parser.add_argument("--stage-name", default="downstream_plus")
     parser.add_argument("--split", default="test")

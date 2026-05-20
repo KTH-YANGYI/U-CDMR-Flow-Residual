@@ -117,7 +117,7 @@ def evaluate(args: Any) -> None:
     except ModuleNotFoundError as exc:
         raise SystemExit("PyTorch is required for plus evaluation.") from exc
 
-    from ucdmr_flow_residual_plus.models.segmentation import SegmenterPlus
+    from ucdmr_flow_residual_plus.teacher import load_teacher_segmenter
 
     config = load_config(args.config)
     dataset_root = resolve_dataset_root(config, args.dataset_root)
@@ -130,14 +130,14 @@ def evaluate(args: Any) -> None:
     if args.max_samples is not None:
         rows = rows[: args.max_samples]
     device = torch.device(args.device if args.device else ("cuda" if torch.cuda.is_available() else "cpu"))
-    try:
-        ckpt = torch.load(checkpoint_path, map_location=device, weights_only=False)
-    except TypeError:
-        ckpt = torch.load(checkpoint_path, map_location=device)
-    ckpt_args = ckpt.get("args", {})
-    model = SegmenterPlus(encoder_name=str(args.encoder or ckpt_args.get("encoder", "resnet34")), pretrained=False, base_channels=int(args.base_channels or ckpt_args.get("base_channels", 48))).to(device)
-    model.load_state_dict(ckpt["model"])
-    model.eval()
+    model = load_teacher_segmenter(
+        torch_module=torch,
+        checkpoint_path=checkpoint_path,
+        device=device,
+        encoder=args.encoder,
+        base_channels=args.base_channels,
+        source_root=args.teacher_source_root,
+    )
     records: list[dict[str, object]] = []
     pred_dir = eval_root / "pred_masks"
     with torch.no_grad():

@@ -113,7 +113,7 @@ def generate(args: Any) -> None:
     from ucdmr_flow_residual_plus.evaluation import _metrics as segmentation_metrics
     from ucdmr_flow_residual_plus.evaluation import _predict as predict_segmentation
     from ucdmr_flow_residual_plus.models.residual_flow import ResidualFlowUNet
-    from ucdmr_flow_residual_plus.models.segmentation import SegmenterPlus
+    from ucdmr_flow_residual_plus.teacher import load_teacher_segmenter
 
     config = load_config(args.config)
     dataset_root = resolve_dataset_root(config, args.dataset_root)
@@ -157,18 +157,12 @@ def generate(args: Any) -> None:
     teacher = None
     teacher_checkpoint = Path(args.teacher_checkpoint) if args.teacher_checkpoint else output_root / args.teacher_stage_name / "checkpoints" / "latest.pt"
     if teacher_checkpoint.exists():
-        try:
-            teacher_ckpt = torch.load(teacher_checkpoint, map_location=device, weights_only=False)
-        except TypeError:
-            teacher_ckpt = torch.load(teacher_checkpoint, map_location=device)
-        teacher_args = teacher_ckpt.get("args", {})
-        teacher = SegmenterPlus(
-            encoder_name=str(teacher_args.get("encoder", "resnet34")),
-            pretrained=False,
-            base_channels=int(teacher_args.get("base_channels", 48)),
-        ).to(device)
-        teacher.load_state_dict(teacher_ckpt["model"])
-        teacher.eval()
+        teacher = load_teacher_segmenter(
+            torch_module=torch,
+            checkpoint_path=teacher_checkpoint,
+            device=device,
+            source_root=args.teacher_source_root,
+        )
     seed_mask = int(args.seed_mask if args.seed_mask is not None else args.seed)
     seed_residual = int(args.seed_residual if args.seed_residual is not None else args.seed + 100000)
     records: list[dict[str, object]] = []

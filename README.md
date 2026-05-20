@@ -60,7 +60,7 @@ manifest_merged.csv
   -> optional descriptor Mask Flow
   -> synthetic image-mask pairs
   -> synthetic filter
-  -> teacher/downstream segmentation
+  -> existing teacher checkpoint / downstream segmentation
   -> real held-out evaluation
 ```
 
@@ -99,6 +99,7 @@ ucdmr_plus_prepare_pseudo_normal
 Training and generation:
 
 ```bash
+# optional only if no existing segmentation teacher is available
 ucdmr_plus_train_teacher
 ucdmr_plus_train_residual_flow
 ucdmr_plus_train_mask_descriptor_flow
@@ -173,12 +174,13 @@ Prepare plus artifacts:
 bash scripts/alvis/prepare_ucdmr_plus_data.sh
 ```
 
-Train teacher and residual flow:
+Train residual flow:
 
 ```bash
-sbatch scripts/alvis/train_ucdmr_plus_teacher_2node_8gpu.slurm
 sbatch scripts/alvis/train_ucdmr_plus_residual_flow_2node_8gpu.slurm
 ```
+
+Teacher segmentation does not need to be retrained if an existing checkpoint is available. The Alvis generation script can load legacy `UNET_two_stage` checkpoints through `TEACHER_CHECKPOINT` and `TEACHER_SOURCE_ROOT`; by default it uses the existing native-resolution stage-2 `m4_skip_d4d3` checkpoint under `UNET_two_stage/outputs/experiments/811_fixed_split/phase2_architecture_full_single_seed/811_m4_skip_d4d3_s20260515/stage2/best_stage2.pt`.
 
 Optional descriptor Mask Flow:
 

@@ -30,6 +30,7 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--seed-mask", type=int, default=None)
     parser.add_argument("--support-threshold", type=float, default=8.0)
     parser.add_argument("--teacher-checkpoint", type=Path, default=None)
+    parser.add_argument("--teacher-source-root", type=Path, default=None)
     parser.add_argument("--teacher-stage-name", default="teacher_plus")
     parser.add_argument("--teacher-threshold", type=float, default=0.5)
     return parser
