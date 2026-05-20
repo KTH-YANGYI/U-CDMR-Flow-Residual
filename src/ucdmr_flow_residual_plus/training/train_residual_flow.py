@@ -7,7 +7,7 @@ from typing import Any
 from ucdmr_flow_residual_plus.io_utils import read_csv_records, write_json
 
 from ucdmr_flow_residual_plus.config import load_config, resolve_dataset_root, resolve_output_root
-from ucdmr_flow_residual_plus.training.train_residual_renderer import _autocast_context, _jsonable_args, _make_grad_scaler
+from ucdmr_flow_residual_plus.training.utils import autocast_context, jsonable_args, make_grad_scaler
 
 
 def dry_run_summary(args: Any) -> dict[str, object]:
@@ -87,7 +87,7 @@ def train(args: Any) -> None:
     if state.distributed:
         model = DistributedDataParallel(model, device_ids=[state.local_rank] if torch.cuda.is_available() else None)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scaler = _make_grad_scaler(torch, enabled=args.amp and torch.cuda.is_available())
+    scaler = make_grad_scaler(torch, enabled=args.amp and torch.cuda.is_available())
     history: list[dict[str, float | int]] = []
     global_step = 0
     for epoch in range(args.epochs):
@@ -104,9 +104,10 @@ def train(args: Any) -> None:
             style = batch["style"].to(state.device, non_blocking=True)
             domain_idx = batch["domain_idx"].to(state.device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with _autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
-                x1 = (target - context) * m_gate
-                x0 = torch.randn_like(x1) * float(args.flow_sigma) * m_gate
+            with autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
+                gate_support = (m_gate > 0.0).to(dtype=target.dtype)
+                x1 = (target - context) * gate_support
+                x0 = torch.randn_like(x1) * float(args.flow_sigma) * gate_support
                 t = torch.rand((x1.shape[0], 1, 1, 1), device=state.device, dtype=x1.dtype)
                 x_t = (1.0 - t) * x0 + t * x1
                 target_v = x1 - x0
@@ -140,9 +141,9 @@ def train(args: Any) -> None:
             history.append(metrics)
             if (epoch + 1) % args.save_every == 0 or epoch == args.epochs - 1:
                 target_model = model.module if hasattr(model, "module") else model
-                ckpt = {"model": target_model.state_dict(), "optimizer": optimizer.state_dict(), "epoch": epoch, "global_step": global_step, "args": _jsonable_args(args), "metrics": metrics, "stage": "residual_flow_plus"}
+                ckpt = {"model": target_model.state_dict(), "optimizer": optimizer.state_dict(), "epoch": epoch, "global_step": global_step, "args": jsonable_args(args), "metrics": metrics, "stage": "residual_flow_plus"}
                 torch.save(ckpt, ckpt_root / f"epoch_{epoch:04d}.pt")
                 torch.save(ckpt, ckpt_root / "latest.pt")
-            write_json(report_root / "plus_residual_flow_training.json", {"history": history, "args": _jsonable_args(args)})
+            write_json(report_root / "plus_residual_flow_training.json", {"history": history, "args": jsonable_args(args)})
         barrier(torch, state)
     cleanup(torch)

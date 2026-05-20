@@ -1,47 +1,6 @@
 from __future__ import annotations
 
 
-def residual_loss(
-    *,
-    torch_module,
-    context,
-    target,
-    delta,
-    m_raw,
-    m_band,
-    m_gate,
-    lambda_inside: float,
-    lambda_outside: float,
-    lambda_leak: float,
-    lambda_edge: float,
-):
-    recon = (context + m_gate * delta).clamp(0.0, 1.0)
-    inside_w = m_band.clamp(0.0, 1.0).expand_as(recon)
-    outside_w = (1.0 - m_gate).expand_as(recon)
-    inside = (torch_module.abs(recon - target) * inside_w).sum() / inside_w.sum().clamp_min(1.0)
-    outside = (torch_module.abs(recon - context) * outside_w).sum() / outside_w.sum().clamp_min(1.0)
-    leak = (torch_module.abs(delta) * outside_w).sum() / outside_w.sum().clamp_min(1.0)
-    if lambda_edge > 0:
-        gx_r = torch_module.abs(recon[..., :, 1:] - recon[..., :, :-1])
-        gx_t = torch_module.abs(target[..., :, 1:] - target[..., :, :-1])
-        gy_r = torch_module.abs(recon[..., 1:, :] - recon[..., :-1, :])
-        gy_t = torch_module.abs(target[..., 1:, :] - target[..., :-1, :])
-        wx = m_raw.expand_as(recon)[..., :, 1:]
-        wy = m_raw.expand_as(recon)[..., 1:, :]
-        edge = (torch_module.abs(gx_r - gx_t) * wx).sum() / wx.sum().clamp_min(1.0)
-        edge = edge + (torch_module.abs(gy_r - gy_t) * wy).sum() / wy.sum().clamp_min(1.0)
-    else:
-        edge = inside.new_tensor(0.0)
-    loss = lambda_inside * inside + lambda_outside * outside + lambda_leak * leak + lambda_edge * edge
-    return loss, {
-        "loss": float(loss.detach().cpu()),
-        "inside_l1": float(inside.detach().cpu()),
-        "outside_identity": float(outside.detach().cpu()),
-        "residual_leak": float(leak.detach().cpu()),
-        "edge": float(edge.detach().cpu()),
-    }
-
-
 def residual_flow_loss(
     *,
     torch_module,
@@ -54,9 +13,9 @@ def residual_flow_loss(
     lambda_leak: float,
 ):
     inside_w = (m_band.clamp(0.0, 1.0) + 0.25 * m_gate.clamp(0.0, 1.0)).clamp(0.0, 1.0).expand_as(pred_v)
-    outside_w = (1.0 - m_gate.clamp(0.0, 1.0)).expand_as(pred_v)
+    outside_w = (m_gate <= 0.001).to(dtype=pred_v.dtype).expand_as(pred_v)
     flow = ((pred_v - target_v).pow(2) * inside_w).sum() / inside_w.sum().clamp_min(1.0)
-    outside = ((pred_v - target_v).pow(2) * outside_w).sum() / outside_w.sum().clamp_min(1.0)
+    outside = (pred_v.pow(2) * outside_w).sum() / outside_w.sum().clamp_min(1.0)
     leak = (torch_module.abs(pred_v) * outside_w).sum() / outside_w.sum().clamp_min(1.0)
     loss = lambda_flow * flow + lambda_outside * outside + lambda_leak * leak
     return loss, {

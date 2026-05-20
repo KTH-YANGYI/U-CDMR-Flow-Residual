@@ -101,7 +101,6 @@ Training and generation:
 ```bash
 ucdmr_plus_train_teacher
 ucdmr_plus_train_residual_flow
-ucdmr_plus_train_residual_renderer
 ucdmr_plus_train_mask_descriptor_flow
 ucdmr_plus_sample_masks
 ucdmr_plus_generate_synthetic
@@ -120,7 +119,6 @@ ucdmr_plus_prepare_masks --dry-run --split train --max-samples 1
 ucdmr_plus_prepare_pseudo_normal --dry-run --split train --max-samples 1
 ucdmr_plus_train_teacher --dry-run
 ucdmr_plus_train_residual_flow --dry-run
-ucdmr_plus_train_residual_renderer --dry-run
 ucdmr_plus_train_mask_descriptor_flow --dry-run
 ucdmr_plus_sample_masks --dry-run
 ucdmr_plus_generate_synthetic --dry-run
@@ -147,17 +145,6 @@ Generation samples `Delta_flow` by ODE integration and blends it as:
 I_syn = I_normal + gate(M_syn) * Delta_flow
 Y_syn = M_syn
 ```
-
-The deterministic residual renderer is retained as a baseline/warmup:
-
-```text
-I_context + mask representations + domain + style noise
-  -> pretrained visual encoder
-  -> residual decoder
-  -> Delta_rgb
-```
-
-The default encoder is ImageNet-pretrained `resnet34`. If pretrained weights are not cached on the node and cannot be loaded, training fails fast instead of silently switching to a random encoder. Use `--no-pretrained` only when you intentionally want a scratch baseline.
 
 Teacher/downstream segmenter:
 
@@ -186,12 +173,11 @@ Prepare plus artifacts:
 bash scripts/alvis/prepare_ucdmr_plus_data.sh
 ```
 
-Train teacher, residual flow, and the deterministic renderer baseline:
+Train teacher and residual flow:
 
 ```bash
 sbatch scripts/alvis/train_ucdmr_plus_teacher_2node_8gpu.slurm
 sbatch scripts/alvis/train_ucdmr_plus_residual_flow_2node_8gpu.slurm
-sbatch scripts/alvis/train_ucdmr_plus_residual_renderer_2node_8gpu.slurm
 ```
 
 Optional descriptor Mask Flow:
@@ -206,12 +192,6 @@ Generate/filter synthetic pairs:
 ```bash
 bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 bash scripts/alvis/filter_ucdmr_plus_synthetic.sh
-```
-
-Generation uses `RESIDUAL_SOURCE=flow` by default. For the deterministic baseline:
-
-```bash
-RESIDUAL_SOURCE=renderer bash scripts/alvis/generate_ucdmr_plus_synthetic.sh
 ```
 
 Use descriptor-flow masks during generation:

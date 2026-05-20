@@ -8,7 +8,6 @@ OUT_ROOT="${OUT_ROOT:-$ROOT/runs/u_cdmr_flow_residual_plus}"
 PYTORCH_MODULE="${PYTORCH_MODULE:-PyTorch/2.7.1-foss-2024a-CUDA-12.6.0}"
 EXTRA_MODULES="${EXTRA_MODULES:-SciPy-bundle/2024.05-gfbf-2024a Pillow/10.4.0-GCCcore-13.3.0 PyYAML/6.0.2-GCCcore-13.3.0}"
 MASK_SOURCE="${MASK_SOURCE:-bank}"
-RESIDUAL_SOURCE="${RESIDUAL_SOURCE:-flow}"
 
 if [[ -z "${SLURM_JOB_ID:-}" && "${ALLOW_LOGIN_NODE:-0}" != "1" ]]; then
   echo "Refusing to run synthetic generation outside a Slurm allocation. Use salloc/sbatch, or set ALLOW_LOGIN_NODE=1 for a small dry check." >&2
@@ -26,9 +25,6 @@ if [[ "$MASK_SOURCE" == "descriptor_flow" ]]; then
   MASKS_MANIFEST="$OUT_ROOT/sampled_masks/sampled_masks_manifest.csv"
 fi
 CHECKPOINT="$OUT_ROOT/residual_flow_plus/checkpoints/latest.pt"
-if [[ "$RESIDUAL_SOURCE" == "renderer" ]]; then
-  CHECKPOINT="$OUT_ROOT/residual_renderer_plus/checkpoints/latest.pt"
-fi
 
 python -m ucdmr_flow_residual_plus.cli.generate_synthetic \
   --dataset-root "$DATA_ROOT" \
@@ -38,7 +34,6 @@ python -m ucdmr_flow_residual_plus.cli.generate_synthetic \
   --checkpoint "$CHECKPOINT" \
   --split train \
   --mask-source "$MASK_SOURCE" \
-  --residual-source "$RESIDUAL_SOURCE" \
   --flow-steps "${FLOW_STEPS:-32}" \
   --flow-sampler "${FLOW_SAMPLER:-euler}" \
   --flow-sigma "${FLOW_SIGMA:-1.0}" \

@@ -7,6 +7,7 @@ from typing import Any
 from ucdmr_flow_residual_plus.io_utils import read_csv_records, write_json
 
 from ucdmr_flow_residual_plus.config import load_config, resolve_dataset_root, resolve_output_root
+from ucdmr_flow_residual_plus.training.utils import autocast_context, jsonable_args, make_grad_scaler
 
 
 def dry_run_summary(args: Any, *, stage_name: str) -> dict[str, object]:
@@ -27,25 +28,6 @@ def dry_run_summary(args: Any, *, stage_name: str) -> dict[str, object]:
         "distributed_launcher": "torchrun/slurm_env",
         "dry_run": True,
     }
-
-
-def _jsonable_args(args: Any) -> dict[str, object]:
-    out: dict[str, object] = {}
-    for key, value in vars(args).items():
-        out[key] = str(value) if isinstance(value, Path) else value if isinstance(value, (str, int, float, bool)) or value is None else str(value)
-    return out
-
-
-def _make_grad_scaler(torch_module: Any, enabled: bool) -> Any:
-    if hasattr(torch_module, "amp"):
-        return torch_module.amp.GradScaler("cuda", enabled=enabled)
-    return torch_module.cuda.amp.GradScaler(enabled=enabled)
-
-
-def _autocast_context(torch_module: Any, enabled: bool) -> Any:
-    if hasattr(torch_module, "amp"):
-        return torch_module.amp.autocast("cuda", enabled=enabled)
-    return torch_module.cuda.amp.autocast(enabled=enabled)
 
 
 def _rows(args: Any, output_root: Path) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
@@ -74,7 +56,7 @@ def train(args: Any, *, stage_name: str) -> None:
     except ModuleNotFoundError as exc:
         raise SystemExit("PyTorch is required for plus segmentation training.") from exc
 
-    from ucdmr_flow_residual_plus.models.residual_renderer import SegmenterPlus
+    from ucdmr_flow_residual_plus.models.segmentation import SegmenterPlus
     from ucdmr_flow_residual_plus.training.datasets import PlusSegmentationDataset
     from ucdmr_flow_residual_plus.training.distributed import barrier, cleanup, init_distributed
     from ucdmr_flow_residual_plus.training.losses import segmentation_loss
@@ -106,7 +88,7 @@ def train(args: Any, *, stage_name: str) -> None:
     if state.distributed:
         model = DistributedDataParallel(model, device_ids=[state.local_rank] if torch.cuda.is_available() else None)
     optimizer = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
-    scaler = _make_grad_scaler(torch, enabled=args.amp and torch.cuda.is_available())
+    scaler = make_grad_scaler(torch, enabled=args.amp and torch.cuda.is_available())
     history: list[dict[str, float | int]] = []
     global_step = 0
     for epoch in range(args.epochs):
@@ -118,7 +100,7 @@ def train(args: Any, *, stage_name: str) -> None:
             image = batch["image"].to(state.device, non_blocking=True)
             mask = batch["mask"].to(state.device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            with _autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
+            with autocast_context(torch, enabled=args.amp and torch.cuda.is_available()):
                 logits = model(image)
                 loss, parts = segmentation_loss(torch, logits, mask, bce_weight=args.bce_weight, dice_weight=args.dice_weight, focal_weight=args.focal_weight, pos_weight=args.pos_weight)
             scaler.scale(loss).backward()
@@ -140,9 +122,9 @@ def train(args: Any, *, stage_name: str) -> None:
             history.append(metrics)
             if (epoch + 1) % args.save_every == 0 or epoch == args.epochs - 1:
                 target_model = model.module if hasattr(model, "module") else model
-                ckpt = {"model": target_model.state_dict(), "optimizer": optimizer.state_dict(), "epoch": epoch, "global_step": global_step, "args": _jsonable_args(args), "metrics": metrics, "stage": stage_name}
+                ckpt = {"model": target_model.state_dict(), "optimizer": optimizer.state_dict(), "epoch": epoch, "global_step": global_step, "args": jsonable_args(args), "metrics": metrics, "stage": stage_name}
                 torch.save(ckpt, ckpt_root / f"epoch_{epoch:04d}.pt")
                 torch.save(ckpt, ckpt_root / "latest.pt")
-            write_json(report_root / f"{stage_name}_training.json", {"history": history, "args": _jsonable_args(args)})
+            write_json(report_root / f"{stage_name}_training.json", {"history": history, "args": jsonable_args(args)})
         barrier(torch, state)
     cleanup(torch)

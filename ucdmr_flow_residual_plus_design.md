@@ -114,17 +114,6 @@ I_syn = I_normal + gate(M_syn) * Delta_flow
 
 Mask outside the gate should remain unchanged by construction and by filtering.
 
-## Deterministic Baseline
-
-The previous deterministic residual renderer is kept only as:
-
-```text
-baseline
-warmup/debug model
-```
-
-It predicts `Delta_rgb` in one forward pass. It is not the main result.
-
 ## Synthetic Manifest Requirements
 
 Each generated sample records:
@@ -145,13 +134,6 @@ mask_path
 residual_path
 ```
 
-For deterministic baseline samples:
-
-```text
-residual_source = deterministic_renderer
-renderer_checkpoint
-```
-
 ## Validation
 
 Required checks:
@@ -159,15 +141,13 @@ Required checks:
 ```text
 python -m compileall src scripts
 ucdmr_plus_train_residual_flow --dry-run
-ucdmr_plus_generate_synthetic --dry-run --residual-source flow
-ucdmr_plus_generate_synthetic --dry-run --residual-source renderer
+ucdmr_plus_generate_synthetic --dry-run
 ```
 
 Main downstream comparison:
 
 ```text
 real only
-real + deterministic residual renderer synthetic
 real + mask flow + residual flow synthetic
 ```
 

@@ -139,7 +139,7 @@ def evaluate(args: Any) -> None:
     except ModuleNotFoundError as exc:
         raise SystemExit("PyTorch is required for plus evaluation.") from exc
 
-    from ucdmr_flow_residual_plus.models.residual_renderer import SegmenterPlus
+    from ucdmr_flow_residual_plus.models.segmentation import SegmenterPlus
 
     config = load_config(args.config)
     dataset_root = resolve_dataset_root(config, args.dataset_root)
