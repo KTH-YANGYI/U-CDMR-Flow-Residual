@@ -41,6 +41,8 @@ class ResidualFlowUNet(nn.Module):
         style_dim: int = 16,
         time_dim: int = 128,
         max_velocity: float = 0.0,
+        local_refine: bool = False,
+        local_refine_channels: int = 64,
     ) -> None:
         super().__init__()
         c = int(base_channels)
@@ -270,6 +272,7 @@ class ResidualFlowDiT(nn.Module):
         self.style_dim = int(style_dim)
         self.time_dim = int(time_dim)
         self.max_velocity = float(max_velocity)
+        self.local_refine_enabled = bool(local_refine)
         self.x_embedder = _PatchEmbed(in_channels, self.hidden_size, self.patch_size)
         self.t_embedder = _TimestepEmbedder(self.hidden_size, self.time_dim)
         self.domain_embed = nn.Embedding(domain_count, self.hidden_size)
@@ -278,6 +281,17 @@ class ResidualFlowDiT(nn.Module):
             [_DiTBlock(self.hidden_size, int(num_heads), float(mlp_ratio)) for _ in range(int(depth))]
         )
         self.final_layer = _DiTFinalLayer(self.hidden_size, self.patch_size, self.out_channels)
+        if self.local_refine_enabled:
+            refine_channels = int(local_refine_channels)
+            self.local_refine = nn.Sequential(
+                nn.Conv2d(self.out_channels + condition_channels, refine_channels, kernel_size=3, padding=1),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(refine_channels, refine_channels, kernel_size=3, padding=1),
+                nn.SiLU(inplace=True),
+                nn.Conv2d(refine_channels, self.out_channels, kernel_size=3, padding=1),
+            )
+        else:
+            self.local_refine = None
         self.initialize_weights()
 
     def initialize_weights(self) -> None:
@@ -303,6 +317,9 @@ class ResidualFlowDiT(nn.Module):
         nn.init.constant_(self.final_layer.adaLN_modulation[-1].bias, 0)
         nn.init.constant_(self.final_layer.linear.weight, 0)
         nn.init.constant_(self.final_layer.linear.bias, 0)
+        if self.local_refine is not None:
+            nn.init.constant_(self.local_refine[-1].weight, 0)
+            nn.init.constant_(self.local_refine[-1].bias, 0)
 
     def unpatchify(self, x: torch.Tensor, grid_h: int, grid_w: int) -> torch.Tensor:
         p = self.patch_size
@@ -345,6 +362,8 @@ class ResidualFlowDiT(nn.Module):
             x = block(x, c)
         x = self.final_layer(x, c)
         out = self.unpatchify(x, grid_h, grid_w)[:, :, :height, :width]
+        if self.local_refine is not None:
+            out = out + self.local_refine(torch.cat([out, condition], dim=1))
         if self.max_velocity > 0:
             out = torch.tanh(out) * self.max_velocity
         return out
@@ -375,6 +394,8 @@ def build_residual_flow_model(
     dit_depth: int = 8,
     dit_num_heads: int = 6,
     dit_mlp_ratio: float = 4.0,
+    dit_local_refine: bool = False,
+    dit_local_refine_channels: int = 64,
 ) -> nn.Module:
     resolved_type = normalize_residual_flow_model_type(model_type)
     if resolved_type == "residual_flow_unet":
@@ -401,4 +422,6 @@ def build_residual_flow_model(
         style_dim=style_dim,
         time_dim=time_dim,
         max_velocity=max_velocity,
+        local_refine=dit_local_refine,
+        local_refine_channels=dit_local_refine_channels,
     )

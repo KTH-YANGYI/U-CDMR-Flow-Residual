@@ -9,6 +9,8 @@ model:
   dit_depth: 8
   dit_num_heads: 6
   dit_mlp_ratio: 4.0
+  dit_local_refine: false
+  dit_local_refine_channels: 64
 training:
   objective: rectified_flow
   x1: gate_masked_real_crack_minus_pseudo_normal

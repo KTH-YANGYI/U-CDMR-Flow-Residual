@@ -27,6 +27,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--dit-depth", type=int, default=8)
     parser.add_argument("--dit-num-heads", type=int, default=6)
     parser.add_argument("--dit-mlp-ratio", type=float, default=4.0)
+    parser.add_argument("--dit-local-refine", action="store_true", default=False)
+    parser.add_argument("--dit-local-refine-channels", type=int, default=64)
     parser.add_argument("--max-velocity", type=float, default=1.0)
     parser.add_argument("--flow-sigma", type=float, default=0.25)
     parser.add_argument("--lr", type=float, default=1e-4)

@@ -171,6 +171,8 @@ def dry_run_summary(args: Any) -> dict[str, object]:
         "dit_hidden_size": args.dit_hidden_size,
         "dit_depth": args.dit_depth,
         "dit_num_heads": args.dit_num_heads,
+        "dit_local_refine": args.dit_local_refine,
+        "dit_local_refine_channels": args.dit_local_refine_channels,
         "split": args.split,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
@@ -231,8 +233,9 @@ def train(args: Any) -> None:
                 "distributed": state.distributed,
                 "amp": args.amp,
                 "amp_dtype": args.amp_dtype,
-                "model_type": args.model_type,
-                "max_velocity": args.max_velocity,
+        "model_type": args.model_type,
+        "dit_local_refine": args.dit_local_refine,
+        "max_velocity": args.max_velocity,
             },
             flush=True,
         )
@@ -291,6 +294,8 @@ def train(args: Any) -> None:
         dit_depth=args.dit_depth,
         dit_num_heads=args.dit_num_heads,
         dit_mlp_ratio=args.dit_mlp_ratio,
+        dit_local_refine=args.dit_local_refine,
+        dit_local_refine_channels=args.dit_local_refine_channels,
     ).to(state.device)
     if state.distributed:
         model = DistributedDataParallel(model, device_ids=[state.local_rank] if torch.cuda.is_available() else None)

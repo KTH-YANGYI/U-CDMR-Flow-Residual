@@ -27,6 +27,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--dit-depth", type=int, default=None)
     parser.add_argument("--dit-num-heads", type=int, default=None)
     parser.add_argument("--dit-mlp-ratio", type=float, default=None)
+    parser.add_argument("--dit-local-refine", action="store_true", default=None)
+    parser.add_argument("--dit-local-refine-channels", type=int, default=None)
     parser.add_argument("--max-velocity", type=float, default=None)
     parser.add_argument("--flow-steps", type=int, default=32)
     parser.add_argument("--flow-sampler", choices=["euler", "heun"], default="heun")

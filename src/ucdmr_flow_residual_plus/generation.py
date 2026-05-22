@@ -237,6 +237,8 @@ def dry_run_generate_summary(args: Any) -> dict[str, object]:
         "dit_hidden_size": args.dit_hidden_size,
         "dit_depth": args.dit_depth,
         "dit_num_heads": args.dit_num_heads,
+        "dit_local_refine": args.dit_local_refine,
+        "dit_local_refine_channels": args.dit_local_refine_channels,
         "flow_steps": args.flow_steps,
         "flow_sampler": args.flow_sampler,
         "flow_sigma": args.flow_sigma,
@@ -301,6 +303,7 @@ def generate(args: Any) -> None:
     ckpt_args = ckpt.get("args", {})
     model_type = normalize_residual_flow_model_type(args.model_type or ckpt_args.get("model_type", "residual_flow_unet"))
     style_dim = int(args.style_dim or ckpt_args.get("style_dim", 16))
+    dit_local_refine = bool(args.dit_local_refine if args.dit_local_refine is not None else ckpt_args.get("dit_local_refine", False))
     model = build_residual_flow_model(
         model_type=model_type,
         condition_channels=CONDITION_CHANNELS,
@@ -313,6 +316,8 @@ def generate(args: Any) -> None:
         dit_depth=int(args.dit_depth or ckpt_args.get("dit_depth", 8)),
         dit_num_heads=int(args.dit_num_heads or ckpt_args.get("dit_num_heads", 6)),
         dit_mlp_ratio=float(args.dit_mlp_ratio if args.dit_mlp_ratio is not None else ckpt_args.get("dit_mlp_ratio", 4.0)),
+        dit_local_refine=dit_local_refine,
+        dit_local_refine_channels=int(args.dit_local_refine_channels or ckpt_args.get("dit_local_refine_channels", 64)),
     ).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -444,6 +449,7 @@ def generate(args: Any) -> None:
                     "residual_source": "flow",
                     "residual_flow_checkpoint": str(checkpoint_path),
                     "residual_flow_model_type": model_type,
+                    "dit_local_refine": int(dit_local_refine),
                     "mask_flow_checkpoint": str(mask_flow_checkpoint) if args.mask_source == "descriptor_flow" else "",
                     "flow_steps": args.flow_steps,
                     "flow_sampler": args.flow_sampler,
