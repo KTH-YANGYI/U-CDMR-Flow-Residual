@@ -35,6 +35,12 @@ def chamfer_distance(mask: np.ndarray) -> np.ndarray:
         return cv2.distanceTransform(inv, distanceType=cv2.DIST_L2, maskSize=3).astype(np.float32)
     except ModuleNotFoundError:
         pass
+    try:
+        from scipy import ndimage
+
+        return ndimage.distance_transform_edt(~mask.astype(bool)).astype(np.float32)
+    except ModuleNotFoundError:
+        pass
     mask = mask.astype(bool)
     inf = 1e6
     dist = np.where(mask, 0.0, inf).astype(np.float32)

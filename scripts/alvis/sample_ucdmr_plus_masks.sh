@@ -18,8 +18,16 @@ module load "$PYTORCH_MODULE"
 module load $EXTRA_MODULES
 export PYTHONPATH="$CODE_DIR/src:${PYTHONPATH:-}"
 
+SAMPLE_ARGS=()
+if [[ -n "${SAMPLES_PER_DOMAIN:-}" ]]; then
+  SAMPLE_ARGS+=(--samples-per-domain "$SAMPLES_PER_DOMAIN")
+else
+  SAMPLE_ARGS+=(--sample-count "${SAMPLE_COUNT:-1000}")
+fi
+
 python -m ucdmr_flow_residual_plus.cli.sample_masks \
   --output-root "$OUT_ROOT" \
   --checkpoint "$OUT_ROOT/mask_descriptor_flow/checkpoints/latest.pt" \
   --template-manifest "$OUT_ROOT/mask_descriptor_flow/template_manifest.csv" \
-  --sample-count "${SAMPLE_COUNT:-1000}"
+  --workers "${MASK_RENDER_WORKERS:-${SLURM_CPUS_PER_TASK:-1}}" \
+  "${SAMPLE_ARGS[@]}"

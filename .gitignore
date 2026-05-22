@@ -5,6 +5,8 @@ data
 .venv_broken_*/
 artifacts/
 runs/
+outputs/
+logs/
 preprocessed_pairs/
 __pycache__/
 *.egg-info/

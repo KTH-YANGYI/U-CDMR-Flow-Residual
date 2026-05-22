@@ -17,8 +17,8 @@ from ucdmr_flow_residual_plus.config import load_config, resolve_dataset_root, r
 from ucdmr_flow_residual_plus.pseudo_normal import prepare_pseudo_normal_plus
 
 
-def _prepare_pseudo_worker(task: tuple[dict[str, str], Path, Path, str, float, float, bool]) -> dict[str, object]:
-    row, dataset_root, output_root, method, max_outside_l1, min_quality_score, skip_existing = task
+def _prepare_pseudo_worker(task: tuple[dict[str, str], Path, Path, str, float, float, float, float, bool]) -> dict[str, object]:
+    row, dataset_root, output_root, method, max_outside_l1, min_quality_score, max_pseudo_blockiness, max_pseudo_chroma, skip_existing = task
     return prepare_pseudo_normal_plus(
         row,
         dataset_root=dataset_root,
@@ -26,6 +26,8 @@ def _prepare_pseudo_worker(task: tuple[dict[str, str], Path, Path, str, float, f
         method=method,
         max_outside_l1=max_outside_l1,
         min_quality_score=min_quality_score,
+        max_pseudo_blockiness=max_pseudo_blockiness,
+        max_pseudo_chroma=max_pseudo_chroma,
         skip_existing=skip_existing,
     )
 
@@ -38,6 +40,8 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--method", default="opencv_telea")
     parser.add_argument("--max-outside-l1", type=float, default=1.0)
     parser.add_argument("--min-quality-score", type=float, default=0.0)
+    parser.add_argument("--max-pseudo-blockiness", type=float, default=float("inf"))
+    parser.add_argument("--max-pseudo-chroma", type=float, default=float("inf"))
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--skip-existing", action="store_true")
     return parser
@@ -75,6 +79,8 @@ def main() -> None:
                 args.method,
                 args.max_outside_l1,
                 args.min_quality_score,
+                args.max_pseudo_blockiness,
+                args.max_pseudo_chroma,
                 args.skip_existing,
             )
             for row in rows

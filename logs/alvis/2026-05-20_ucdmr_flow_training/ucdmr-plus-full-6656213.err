@@ -1,3 +1,0 @@
-srun: Job step aborted: Waiting up to 122 seconds for job step to finish.
-slurmstepd: error: *** JOB 6656213 ON alvis3-21 CANCELLED AT 2026-05-21T01:33:40 ***
-slurmstepd: error: *** STEP 6656213.3 ON alvis3-21 CANCELLED AT 2026-05-21T01:33:40 ***

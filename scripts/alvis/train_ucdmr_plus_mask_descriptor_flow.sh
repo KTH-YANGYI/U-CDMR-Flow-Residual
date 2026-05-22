@@ -23,4 +23,5 @@ python -m ucdmr_flow_residual_plus.cli.train_mask_descriptor_flow \
   --masks-manifest "$OUT_ROOT/masks/masks_manifest.csv" \
   --split train \
   --epochs "${EPOCHS:-200}" \
-  --batch-size "${BATCH_SIZE:-64}"
+  --batch-size "${BATCH_SIZE:-64}" \
+  --device "${DEVICE:-cuda}"

@@ -9,6 +9,7 @@ except ModuleNotFoundError:
     yaml = None
 
 from ucdmr_flow_residual_plus.paths import DEFAULT_CONFIG, DEFAULT_DATASET_ROOT, DEFAULT_METHOD_ROOT
+from ucdmr_flow_residual_plus.constants import base_domain_name
 
 
 def load_config(path: str | Path | None = None) -> dict[str, Any]:
@@ -43,6 +44,7 @@ def resolve_output_root(config: dict[str, Any], override: str | Path | None = No
 def domain_value(config: dict[str, Any], section: str, key: str, domain: str, default: int | float) -> int | float:
     value = nested_get(config, (section, key), default)
     if isinstance(value, dict):
-        return value.get(domain, default)
+        if domain in value:
+            return value[domain]
+        return value.get(base_domain_name(domain), default)
     return value
-

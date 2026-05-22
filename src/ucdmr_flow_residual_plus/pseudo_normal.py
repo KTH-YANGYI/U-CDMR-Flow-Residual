@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import math
 
 import numpy as np
 from PIL import Image, ImageFilter
@@ -37,6 +38,20 @@ def inpaint_pseudo_normal(rgb: np.ndarray, mask: np.ndarray, *, method: str, blu
     raise ValueError(f"Unsupported pseudo-normal method: {method}")
 
 
+def _masked_tv(gray: np.ndarray, mask: np.ndarray) -> float:
+    mask = mask.astype(bool)
+    if gray.shape[0] < 2 or gray.shape[1] < 2:
+        return 0.0
+    y_mask = mask[1:, :] & mask[:-1, :]
+    x_mask = mask[:, 1:] & mask[:, :-1]
+    parts = []
+    if np.any(y_mask):
+        parts.append(float(np.abs(gray[1:, :] - gray[:-1, :])[y_mask].mean()))
+    if np.any(x_mask):
+        parts.append(float(np.abs(gray[:, 1:] - gray[:, :-1])[x_mask].mean()))
+    return float(np.mean(parts)) if parts else 0.0
+
+
 def pseudo_quality(crack: np.ndarray, pseudo: np.ndarray, *, inpaint_mask: np.ndarray, gate_mask: np.ndarray) -> dict[str, float]:
     diff = gray_from_rgb(np.abs(crack.astype(np.float32) - pseudo.astype(np.float32)))
     outside = ~gate_mask.astype(bool)
@@ -45,10 +60,20 @@ def pseudo_quality(crack: np.ndarray, pseudo: np.ndarray, *, inpaint_mask: np.nd
     inside_l1 = float(diff[inside].mean()) if np.any(inside) else 0.0
     band = gate_mask.astype(bool) & ~inpaint_mask.astype(bool)
     artifact_band_energy = float(diff[band].mean()) if np.any(band) else 0.0
+    pseudo_gray = gray_from_rgb(pseudo.astype(np.float32))
+    pseudo_tv_inside = _masked_tv(pseudo_gray, inside)
+    pseudo_tv_band = _masked_tv(pseudo_gray, band)
+    pseudo_blockiness = max(0.0, pseudo_tv_inside - pseudo_tv_band)
+    pseudo_chroma = np.max(np.abs(pseudo.astype(np.float32) - pseudo.astype(np.float32).mean(axis=2, keepdims=True)), axis=2)
+    pseudo_chroma_inside = float(pseudo_chroma[inside].mean()) if np.any(inside) else 0.0
     return {
         "outside_l1": round(outside_l1, 6),
         "inside_l1": round(inside_l1, 6),
         "artifact_band_energy": round(artifact_band_energy, 6),
+        "pseudo_tv_inside": round(pseudo_tv_inside, 6),
+        "pseudo_tv_band": round(pseudo_tv_band, 6),
+        "pseudo_blockiness_score": round(pseudo_blockiness, 6),
+        "pseudo_chroma_inside": round(pseudo_chroma_inside, 6),
         "pseudo_quality_score": round(max(0.0, inside_l1 - outside_l1 - 0.5 * artifact_band_energy), 6),
         "teacher_crack_score_on_pseudo": "",
     }
@@ -62,6 +87,8 @@ def prepare_pseudo_normal_plus(
     method: str,
     max_outside_l1: float,
     min_quality_score: float,
+    max_pseudo_blockiness: float = math.inf,
+    max_pseudo_chroma: float = math.inf,
     skip_existing: bool = False,
 ) -> dict[str, object]:
     sample_id = row["sample_id"]
@@ -85,7 +112,12 @@ def prepare_pseudo_normal_plus(
         Image.fromarray(np.clip(diff, 0, 255).astype(np.uint8), mode="L").save(abs_diff_path)
     if not (skip_existing and mask_path.exists()):
         save_mask(mask_path, inpaint_mask)
-    accepted = float(metrics["outside_l1"]) <= max_outside_l1 and float(metrics["pseudo_quality_score"]) >= min_quality_score
+    accepted = (
+        float(metrics["outside_l1"]) <= max_outside_l1
+        and float(metrics["pseudo_quality_score"]) >= min_quality_score
+        and float(metrics["pseudo_blockiness_score"]) <= max_pseudo_blockiness
+        and float(metrics["pseudo_chroma_inside"]) <= max_pseudo_chroma
+    )
     return {
         **row,
         "pseudo_image_path": str(pseudo_path),

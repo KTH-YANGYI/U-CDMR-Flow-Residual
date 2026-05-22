@@ -9,7 +9,7 @@ from PIL import Image
 
 from ucdmr_flow_residual_plus.image_utils import bool_mask, load_labelme_mask
 
-from ucdmr_flow_residual_plus.constants import DOMAIN_TO_INDEX, resolve_existing
+from ucdmr_flow_residual_plus.constants import residual_domain_index, resolve_existing
 from ucdmr_flow_residual_plus.paths import dataset_path
 
 
@@ -35,6 +35,16 @@ def load_rgb01(path: str | Path) -> np.ndarray:
 
 def load_mask01(path: str | Path) -> np.ndarray:
     return np.asarray(Image.open(path).convert("L"), dtype=np.float32) / 255.0
+
+
+def _float_from_row(row: dict[str, str], key: str, default: float = 0.0) -> float:
+    try:
+        value = row.get(key, "")
+        if value in {"", None}:
+            return default
+        return float(value)
+    except ValueError:
+        return default
 
 
 def _pad_chw(arr: np.ndarray, height: int, width: int, *, image_pad: bool) -> np.ndarray:
@@ -102,13 +112,19 @@ class PlusResidualDataset:
     def __len__(self) -> int:
         return self.samples_per_epoch
 
-    def __getitem__(self, index: int) -> dict[str, np.ndarray | int | str]:
+    def __getitem__(self, index: int) -> dict[str, np.ndarray | int | float | str]:
         rng = random.Random(self.seed + index * 1000003)
         row = self.rows[index % len(self.rows)]
         target = load_rgb01(dataset_path(self.dataset_root, row["dataset_relative_path"]))
         context = load_rgb01(resolve_existing(row["pseudo_image_path"]))
+        sample_id = row.get("sample_id", "")
+        if target.shape[:2] != context.shape[:2]:
+            raise ValueError(f"target/context shape mismatch for {sample_id}: {target.shape} vs {context.shape}")
         height, width = target.shape[:2]
         conditions = [load_mask01(resolve_existing(row[key])) for key in CONDITION_KEYS]
+        for key, cond in zip(CONDITION_KEYS, conditions):
+            if cond.shape != target.shape[:2]:
+                raise ValueError(f"{key} shape mismatch for {sample_id}: {cond.shape} vs {target.shape[:2]}")
         target_chw = np.transpose(target, (2, 0, 1)).astype(np.float32)
         context_chw = np.transpose(context, (2, 0, 1)).astype(np.float32)
         valid_mask = np.ones((1, height, width), dtype=np.float32)
@@ -116,6 +132,7 @@ class PlusResidualDataset:
         if rng.random() < self.style_dropout:
             style[:] = 0.0
         domain = row.get("domain", row.get("dataset_group", ""))
+        domain_idx = residual_domain_index(domain)
         return {
             "context": context_chw,
             "target": target_chw,
@@ -125,7 +142,15 @@ class PlusResidualDataset:
             "m_gate": conditions[M_GATE_INDEX][None, ...].astype(np.float32),
             "valid_mask": valid_mask,
             "style": style,
-            "domain_idx": DOMAIN_TO_INDEX.get(domain, 0),
+            "domain_idx": domain_idx,
+            "sample_id": sample_id,
+            "domain": domain,
+            "dataset_relative_path": row.get("dataset_relative_path", ""),
+            "pseudo_image_path": row.get("pseudo_image_path", ""),
+            "native_height": height,
+            "native_width": width,
+            "m_raw_ratio": _float_from_row(row, "m_raw_ratio"),
+            "m_band_ratio": _float_from_row(row, "m_band_ratio"),
         }
 
 

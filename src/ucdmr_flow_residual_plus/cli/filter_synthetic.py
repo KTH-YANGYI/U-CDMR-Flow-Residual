@@ -20,6 +20,10 @@ def build_parser() -> ArgumentParser:
     parser.add_argument("--min-mask-residual-iou", type=float, default=0.01)
     parser.add_argument("--min-teacher-dice", type=float, default=None)
     parser.add_argument("--min-teacher-recall", type=float, default=None)
+    parser.add_argument("--max-residual-chroma-p99", type=float, default=None)
+    parser.add_argument("--max-color-speckle-ratio", type=float, default=None)
+    parser.add_argument("--max-color-speckle-pixels", type=float, default=None)
+    parser.add_argument("--max-residual-highfreq-ratio", type=float, default=None)
     return parser
 
 

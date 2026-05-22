@@ -8,7 +8,8 @@ training:
   objective: rectified_flow
   x1: gate_masked_real_crack_minus_pseudo_normal
   x0: gate_masked_gaussian_noise
-  flow_sigma: 0.35
+  flow_sigma: 0.25
+  max_velocity: 1.0
   image_mode: full_native
   native_output: true
   no_global_resize: true
@@ -17,6 +18,8 @@ loss:
   flow_mse: 1.0
   outside_mse: 0.25
   velocity_leak: 1.0
+  velocity_tv: 0.02
+  velocity_chroma: 0.05
 sampling:
   sampler: heun
   steps: 32

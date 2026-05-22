@@ -1,3 +1,0 @@
-This job can be monitored from: https://job.c3se.chalmers.se/alvis/6656454
-{'sample_count': 12, 'manifest': '/mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/ucdmr_flow_residual_plus/runs/u_cdmr_flow_residual_plus/synthetic/inspect_epoch0018_bank_a100_6656454/synthetic_manifest.csv', 'checkpoint': '/mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/ucdmr_flow_residual_plus/runs/u_cdmr_flow_residual_plus/residual_flow_plus/checkpoints/epoch_0018.pt', 'residual_source': 'flow', 'mean_residual_leak': 0.0}
-SYN_OUT=/mimer/NOBACKUP/groups/smart-rail/Yi Yang/CV_contact_wire/ucdmr_flow_residual_plus/runs/u_cdmr_flow_residual_plus/synthetic/inspect_epoch0018_bank_a100_6656454
