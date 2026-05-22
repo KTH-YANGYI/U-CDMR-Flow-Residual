@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 import random
 from typing import Any
@@ -47,6 +48,31 @@ def _float_from_row(row: dict[str, str], key: str, default: float = 0.0) -> floa
         return default
 
 
+def _int_from_row(row: dict[str, str], keys: tuple[str, ...]) -> int | None:
+    for key in keys:
+        try:
+            value = row.get(key, "")
+            if value not in {"", None}:
+                return int(float(value))
+        except ValueError:
+            continue
+    return None
+
+
+def native_size_from_row(row: dict[str, str], *, dataset_root: Path | None = None) -> tuple[int, int]:
+    height = _int_from_row(row, ("native_height", "image_height", "mask_height", "height"))
+    width = _int_from_row(row, ("native_width", "image_width", "mask_width", "width"))
+    if height is not None and width is not None and height > 0 and width > 0:
+        return height, width
+    if dataset_root is not None and row.get("dataset_relative_path"):
+        with Image.open(dataset_path(dataset_root, row["dataset_relative_path"])) as image:
+            width, height = image.size
+        row.setdefault("native_height", str(height))
+        row.setdefault("native_width", str(width))
+        return height, width
+    raise ValueError(f"Cannot infer native size for row={row.get('sample_id') or row.get('dataset_relative_path', '<unknown>')}")
+
+
 def _pad_chw(arr: np.ndarray, height: int, width: int, *, image_pad: bool) -> np.ndarray:
     pad_h = max(0, height - arr.shape[-2])
     pad_w = max(0, width - arr.shape[-1])
@@ -87,6 +113,90 @@ def native_collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             out[key] = values
     return out
+
+
+def strict_native_collate(batch: list[dict[str, Any]]) -> dict[str, Any]:
+    shapes: dict[str, set[tuple[int, ...]]] = defaultdict(set)
+    for item in batch:
+        for key, value in item.items():
+            if isinstance(value, np.ndarray):
+                shapes[key].add(tuple(value.shape))
+    mixed = {key: sorted(value) for key, value in shapes.items() if len(value) > 1}
+    if mixed:
+        sample_ids = [str(item.get("sample_id", "")) for item in batch]
+        raise ValueError(f"strict_native_collate received mixed tensor shapes: {mixed}; sample_ids={sample_ids}")
+    return native_collate(batch)
+
+
+class SizeBucketBatchSampler:
+    """Batch pseudo rows by native HxW so residual-flow training never pads small images."""
+
+    def __init__(
+        self,
+        *,
+        rows: list[dict[str, str]],
+        dataset_root: Path,
+        samples_per_epoch: int,
+        batch_size: int,
+        seed: int,
+        rank: int = 0,
+        world_size: int = 1,
+        drop_last: bool = True,
+    ) -> None:
+        if not rows:
+            raise ValueError("SizeBucketBatchSampler requires at least one row")
+        self.rows = rows
+        self.samples_per_epoch = int(samples_per_epoch)
+        self.batch_size = int(batch_size)
+        self.seed = int(seed)
+        self.rank = int(rank)
+        self.world_size = int(world_size)
+        self.drop_last = bool(drop_last)
+        self.epoch = 0
+        if self.batch_size <= 0:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if self.world_size <= 0:
+            raise ValueError(f"world_size must be positive, got {world_size}")
+        self.row_size_keys = [native_size_from_row(row, dataset_root=dataset_root) for row in rows]
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = int(epoch)
+
+    def bucket_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for height, width in self.row_size_keys:
+            key = f"{height}x{width}"
+            counts[key] = counts.get(key, 0) + 1
+        return dict(sorted(counts.items()))
+
+    def _global_batches(self) -> list[list[int]]:
+        rng = random.Random(self.seed + self.epoch * 1009)
+        indices = list(range(self.samples_per_epoch))
+        rng.shuffle(indices)
+        buckets: dict[tuple[int, int], list[int]] = defaultdict(list)
+        for index in indices:
+            buckets[self.row_size_keys[index % len(self.rows)]].append(index)
+        batches: list[list[int]] = []
+        for key in sorted(buckets):
+            bucket = buckets[key]
+            rng.shuffle(bucket)
+            full = (len(bucket) // self.batch_size) * self.batch_size
+            if full:
+                for start in range(0, full, self.batch_size):
+                    batches.append(bucket[start : start + self.batch_size])
+            if not self.drop_last and full < len(bucket):
+                batches.append(bucket[full:])
+        rng.shuffle(batches)
+        usable = (len(batches) // self.world_size) * self.world_size
+        return batches[:usable] if self.drop_last else batches
+
+    def __iter__(self):
+        batches = self._global_batches()
+        return iter(batches[self.rank :: self.world_size])
+
+    def __len__(self) -> int:
+        batches = self._global_batches()
+        return len(batches[self.rank :: self.world_size])
 
 
 class PlusResidualDataset:

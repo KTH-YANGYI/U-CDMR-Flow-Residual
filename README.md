@@ -45,7 +45,7 @@ phone:  640x640
 dphone: 1408x2560
 ```
 
-dphone is not globally cropped or resized. Training uses full native images. Mixed-size batches are padded only inside the batch, and padding is ignored by the loss.
+dphone is not globally cropped or resized. Training uses full native images. Residual-flow training avoids mixed-size padding: each batch is sampled from one native `HxW` bucket, and the collate step raises if different tensor shapes enter the same batch. This keeps DiT attention from seeing padded image tokens.
 
 ## Active Pipeline
 
