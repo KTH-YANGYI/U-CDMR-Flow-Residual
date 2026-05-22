@@ -140,6 +140,8 @@ FlowModel(x_t, t, I_pseudo_normal, mask representations, domain, style)
   -> velocity
 ```
 
+The default residual velocity backbone is now `residual_flow_dit`: a DiT-style transformer over native-image patches, conditioned by timestep, residual domain, style vector, pseudo-normal RGB, and mask representations. This is still residual Flow Matching, not full-image diffusion. Existing UNet residual checkpoints remain loadable because generation reads `model_type` from the checkpoint args and falls back to `residual_flow_unet` for legacy checkpoints.
+
 Generation samples `Delta_flow` by ODE integration and blends it as:
 
 ```text

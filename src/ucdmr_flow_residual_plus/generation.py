@@ -232,6 +232,11 @@ def dry_run_generate_summary(args: Any) -> dict[str, object]:
         "masks_manifest": str(args.masks_manifest or masks_manifest),
         "mask_source": args.mask_source,
         "mask_flow_checkpoint": str(mask_flow_checkpoint) if args.mask_source == "descriptor_flow" else "",
+        "model_type": args.model_type or "checkpoint_args_or_legacy_unet",
+        "dit_patch_size": args.dit_patch_size,
+        "dit_hidden_size": args.dit_hidden_size,
+        "dit_depth": args.dit_depth,
+        "dit_num_heads": args.dit_num_heads,
         "flow_steps": args.flow_steps,
         "flow_sampler": args.flow_sampler,
         "flow_sigma": args.flow_sigma,
@@ -254,7 +259,7 @@ def generate(args: Any) -> None:
 
     from ucdmr_flow_residual_plus.evaluation import _metrics as segmentation_metrics
     from ucdmr_flow_residual_plus.evaluation import _predict as predict_segmentation
-    from ucdmr_flow_residual_plus.models.residual_flow import ResidualFlowUNet
+    from ucdmr_flow_residual_plus.models.residual_flow import build_residual_flow_model, normalize_residual_flow_model_type
     from ucdmr_flow_residual_plus.teacher import load_teacher_segmenter
 
     config = load_config(args.config)
@@ -294,13 +299,20 @@ def generate(args: Any) -> None:
             f"Refusing generation. checkpoint={checkpoint_path}, bad_tensors={bad_tensors[:20]}"
         )
     ckpt_args = ckpt.get("args", {})
+    model_type = normalize_residual_flow_model_type(args.model_type or ckpt_args.get("model_type", "residual_flow_unet"))
     style_dim = int(args.style_dim or ckpt_args.get("style_dim", 16))
-    model = ResidualFlowUNet(
+    model = build_residual_flow_model(
+        model_type=model_type,
         condition_channels=CONDITION_CHANNELS,
         base_channels=int(args.base_channels or ckpt_args.get("base_channels", 48)),
         style_dim=style_dim,
         time_dim=int(args.time_dim or ckpt_args.get("time_dim", 128)),
         max_velocity=float(args.max_velocity if args.max_velocity is not None else ckpt_args.get("max_velocity", 0.0)),
+        dit_patch_size=int(args.dit_patch_size or ckpt_args.get("dit_patch_size", 32)),
+        dit_hidden_size=int(args.dit_hidden_size or ckpt_args.get("dit_hidden_size", 384)),
+        dit_depth=int(args.dit_depth or ckpt_args.get("dit_depth", 8)),
+        dit_num_heads=int(args.dit_num_heads or ckpt_args.get("dit_num_heads", 6)),
+        dit_mlp_ratio=float(args.dit_mlp_ratio if args.dit_mlp_ratio is not None else ckpt_args.get("dit_mlp_ratio", 4.0)),
     ).to(device)
     model.load_state_dict(ckpt["model"])
     model.eval()
@@ -431,6 +443,7 @@ def generate(args: Any) -> None:
                     "same_domain_only": "1",
                     "residual_source": "flow",
                     "residual_flow_checkpoint": str(checkpoint_path),
+                    "residual_flow_model_type": model_type,
                     "mask_flow_checkpoint": str(mask_flow_checkpoint) if args.mask_source == "descriptor_flow" else "",
                     "flow_steps": args.flow_steps,
                     "flow_sampler": args.flow_sampler,

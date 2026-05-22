@@ -23,6 +23,12 @@ EXTRA_MODULES="${EXTRA_MODULES:-SciPy-bundle/2024.05-gfbf-2024a Pillow/10.4.0-GC
 GPUS_PER_NODE="${GPUS_PER_NODE:-4}"
 MASTER_PORT="${MASTER_PORT:-29514}"
 MAX_VELOCITY="${MAX_VELOCITY:-1.0}"
+MODEL_TYPE="${MODEL_TYPE:-residual_flow_dit}"
+DIT_PATCH_SIZE="${DIT_PATCH_SIZE:-32}"
+DIT_HIDDEN_SIZE="${DIT_HIDDEN_SIZE:-384}"
+DIT_DEPTH="${DIT_DEPTH:-8}"
+DIT_NUM_HEADS="${DIT_NUM_HEADS:-6}"
+DIT_MLP_RATIO="${DIT_MLP_RATIO:-4.0}"
 LR="${LR:-1e-4}"
 AMP_ARGS=()
 if [[ "${USE_AMP:-0}" == "1" ]]; then
@@ -43,7 +49,7 @@ export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 
 MASTER_ADDR="${PROEPI_HEAD_NODE:-$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)}"
 NNODES="${SLURM_NNODES:-2}"
-export DATA_ROOT OUT_ROOT PSEUDO_MANIFEST GPUS_PER_NODE MASTER_ADDR MASTER_PORT MAX_VELOCITY LR AMP_ARGS_STRING
+export DATA_ROOT OUT_ROOT PSEUDO_MANIFEST GPUS_PER_NODE MASTER_ADDR MASTER_PORT MAX_VELOCITY MODEL_TYPE DIT_PATCH_SIZE DIT_HIDDEN_SIZE DIT_DEPTH DIT_NUM_HEADS DIT_MLP_RATIO LR AMP_ARGS_STRING
 
 srun --ntasks="$NNODES" --ntasks-per-node=1 bash -lc '
   torchrun \
@@ -62,6 +68,12 @@ srun --ntasks="$NNODES" --ntasks-per-node=1 bash -lc '
       --batch-size "${BATCH_SIZE:-1}" \
       --workers "${WORKERS:-8}" \
       --samples-per-epoch "${SAMPLES_PER_EPOCH:-8192}" \
+      --model-type "$MODEL_TYPE" \
+      --dit-patch-size "$DIT_PATCH_SIZE" \
+      --dit-hidden-size "$DIT_HIDDEN_SIZE" \
+      --dit-depth "$DIT_DEPTH" \
+      --dit-num-heads "$DIT_NUM_HEADS" \
+      --dit-mlp-ratio "$DIT_MLP_RATIO" \
       --flow-sigma "${FLOW_SIGMA:-0.25}" \
       --max-velocity "$MAX_VELOCITY" \
       --lambda-tv "${LAMBDA_TV:-0.02}" \

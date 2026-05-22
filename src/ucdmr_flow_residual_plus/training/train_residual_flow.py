@@ -166,6 +166,11 @@ def dry_run_summary(args: Any) -> dict[str, object]:
         "dataset_root": str(dataset_root),
         "output_root": str(output_root),
         "pseudo_manifest": str(pseudo_manifest),
+        "model_type": args.model_type,
+        "dit_patch_size": args.dit_patch_size,
+        "dit_hidden_size": args.dit_hidden_size,
+        "dit_depth": args.dit_depth,
+        "dit_num_heads": args.dit_num_heads,
         "split": args.split,
         "epochs": args.epochs,
         "batch_size": args.batch_size,
@@ -190,11 +195,12 @@ def train(args: Any) -> None:
     except ModuleNotFoundError as exc:
         raise SystemExit("PyTorch is required for plus residual flow training.") from exc
 
-    from ucdmr_flow_residual_plus.models.residual_flow import ResidualFlowUNet
+    from ucdmr_flow_residual_plus.models.residual_flow import build_residual_flow_model, normalize_residual_flow_model_type
     from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, PlusResidualDataset, native_collate
     from ucdmr_flow_residual_plus.training.distributed import barrier, cleanup, init_distributed
     from ucdmr_flow_residual_plus.training.losses import residual_flow_loss
 
+    args.model_type = normalize_residual_flow_model_type(args.model_type)
     config = load_config(args.config)
     dataset_root = resolve_dataset_root(config, args.dataset_root)
     output_root = resolve_output_root(config, args.output_root)
@@ -224,6 +230,7 @@ def train(args: Any) -> None:
                 "distributed": state.distributed,
                 "amp": args.amp,
                 "amp_dtype": args.amp_dtype,
+                "model_type": args.model_type,
                 "max_velocity": args.max_velocity,
             },
             flush=True,
@@ -240,12 +247,18 @@ def train(args: Any) -> None:
     )
     sampler = DistributedSampler(dataset, shuffle=True, drop_last=True) if state.distributed else None
     loader = DataLoader(dataset, batch_size=args.batch_size, sampler=sampler, shuffle=sampler is None, num_workers=args.workers, pin_memory=torch.cuda.is_available(), drop_last=True, collate_fn=native_collate)
-    model = ResidualFlowUNet(
+    model = build_residual_flow_model(
+        model_type=args.model_type,
         condition_channels=CONDITION_CHANNELS,
         base_channels=args.base_channels,
         style_dim=args.style_dim,
         time_dim=args.time_dim,
         max_velocity=args.max_velocity,
+        dit_patch_size=args.dit_patch_size,
+        dit_hidden_size=args.dit_hidden_size,
+        dit_depth=args.dit_depth,
+        dit_num_heads=args.dit_num_heads,
+        dit_mlp_ratio=args.dit_mlp_ratio,
     ).to(state.device)
     if state.distributed:
         model = DistributedDataParallel(model, device_ids=[state.local_rank] if torch.cuda.is_available() else None)

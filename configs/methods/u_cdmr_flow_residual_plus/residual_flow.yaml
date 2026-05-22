@@ -1,9 +1,14 @@
 model:
-  type: residual_flow_unet
+  type: residual_flow_dit
   base_channels: 48
   style_dim: 16
   time_dim: 128
   condition_channels: 7
+  dit_patch_size: 32
+  dit_hidden_size: 384
+  dit_depth: 8
+  dit_num_heads: 6
+  dit_mlp_ratio: 4.0
 training:
   objective: rectified_flow
   x1: gate_masked_real_crack_minus_pseudo_normal
