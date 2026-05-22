@@ -10,7 +10,7 @@ generation:
 filter:
   max_residual_leak: 0.1
   max_outside_change: 0.005
-  min_mask_residual_iou: 0.01
+  min_mask_residual_iou: 0.05
   max_residual_chroma_p99: 0.08
   max_color_speckle_ratio: 0.01
   max_color_speckle_pixels: 0
@@ -21,7 +21,7 @@ filter:
       max_outside_change: 0.005
       min_mask_area: 0.000001
       max_mask_area: 0.08
-      min_mask_residual_iou: 0.01
+      min_mask_residual_iou: 0.05
       max_residual_chroma_p99: 0.08
       max_color_speckle_ratio: 0.01
       max_color_speckle_pixels: 0
@@ -31,7 +31,7 @@ filter:
       max_outside_change: 0.005
       min_mask_area: 0.000001
       max_mask_area: 0.08
-      min_mask_residual_iou: 0.01
+      min_mask_residual_iou: 0.05
       max_residual_chroma_p99: 0.08
       max_color_speckle_ratio: 0.01
       max_color_speckle_pixels: 0
@@ -41,7 +41,7 @@ filter:
       max_outside_change: 0.005
       min_mask_area: 0.000001
       max_mask_area: 0.08
-      min_mask_residual_iou: 0.01
+      min_mask_residual_iou: 0.05
       max_residual_chroma_p99: 0.08
       max_color_speckle_ratio: 0.01
       max_color_speckle_pixels: 0

@@ -17,7 +17,7 @@ def assign_video_splits(
     videos_by_domain: dict[str, list[str]] = defaultdict(list)
     seen: set[tuple[str, str]] = set()
     for row in rows:
-        domain = row.get("dataset_group", row.get("domain", ""))
+        domain = row.get("effective_domain", row.get("domain", row.get("dataset_group", "")))
         video = row.get("video_name", "")
         key = (domain, video)
         if key not in seen:
@@ -45,7 +45,7 @@ def assign_video_splits(
     out = []
     for row in rows:
         record = dict(row)
-        domain = record.get("dataset_group", record.get("domain", ""))
+        domain = record.get("effective_domain", record.get("domain", record.get("dataset_group", "")))
         video = record.get("video_name", "")
         record["split"] = split_by_key[(domain, video)]
         record["split_key"] = f"{domain}::{video}"
@@ -56,7 +56,7 @@ def assign_video_splits(
 
 def summarize_splits(rows: list[dict[str, str]]) -> dict[str, object]:
     split_counts = Counter(row.get("split", "") for row in rows)
-    by_domain = Counter((row.get("dataset_group", row.get("domain", "")), row.get("split", "")) for row in rows)
+    by_domain = Counter((row.get("effective_domain", row.get("domain", row.get("dataset_group", ""))), row.get("split", "")) for row in rows)
     split_keys: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         split_keys[row.get("split", "")].add(row.get("split_key", ""))
@@ -66,4 +66,3 @@ def summarize_splits(rows: list[dict[str, str]]) -> dict[str, object]:
         "by_domain_split": {f"{domain}/{split}": count for (domain, split), count in sorted(by_domain.items())},
         "split_key_counts": {split: len(keys) for split, keys in sorted(split_keys.items())},
     }
-

@@ -14,6 +14,7 @@ from ucdmr_flow_residual_plus.io_utils import read_csv_records, write_csv_record
 
 from ucdmr_flow_residual_plus.cli.common import add_common_args
 from ucdmr_flow_residual_plus.config import domain_value, load_config, resolve_dataset_root, resolve_output_root
+from ucdmr_flow_residual_plus.constants import base_domain_name, mask_domain_from_row
 from ucdmr_flow_residual_plus.domain_stats import write_domain_stats
 from ucdmr_flow_residual_plus.manifest import limit_per_domain
 from ucdmr_flow_residual_plus.mask_representations import prepare_plus_masks
@@ -73,16 +74,17 @@ def main() -> None:
     if not args.dry_run:
         tasks = []
         for row in cracks:
-            domain = row.get("dataset_group", row.get("domain", ""))
+            domain = mask_domain_from_row(row)
+            config_domain = base_domain_name(domain)
             tasks.append(
                 (
                     row,
                     dataset_root,
                     output_root / "masks",
-                    int(domain_value(config, "masks", "inpaint_radius", domain, 9)),
-                    int(domain_value(config, "masks", "band_radius", domain, 5)),
-                    int(domain_value(config, "masks", "gate_radius", domain, 7)),
-                    float(domain_value(config, "masks", "gate_blur", domain, 3.0)),
+                    int(domain_value(config, "masks", "inpaint_radius", config_domain, 9)),
+                    int(domain_value(config, "masks", "band_radius", config_domain, 5)),
+                    int(domain_value(config, "masks", "gate_radius", config_domain, 7)),
+                    float(domain_value(config, "masks", "gate_blur", config_domain, 3.0)),
                     args.sdf_clip,
                     args.skip_existing,
                 )
@@ -106,7 +108,7 @@ def main() -> None:
         "output": str(output_root / "masks" / "masks_manifest.csv"),
         "dry_run": args.dry_run,
         "crack_count": len(cracks),
-        "domains": sorted({row.get("dataset_group", row.get("domain", "")) for row in cracks}),
+        "domains": sorted({mask_domain_from_row(row) for row in cracks}),
         "workers": args.workers,
         "actual_workers": actual_workers,
         "skip_existing": args.skip_existing,

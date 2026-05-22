@@ -12,7 +12,14 @@ from ucdmr_flow_residual_plus.image_utils import gray_from_rgb, save_mask
 from ucdmr_flow_residual_plus.io_utils import ensure_dir, read_csv_records, write_csv_records, write_json
 
 from ucdmr_flow_residual_plus.config import load_config, nested_get, resolve_dataset_root, resolve_output_root
-from ucdmr_flow_residual_plus.constants import base_domain_name, effective_domain, residual_domain_index, resolve_existing
+from ucdmr_flow_residual_plus.constants import (
+    base_domain_name,
+    dphone_id_from_row,
+    mask_domain_from_row,
+    residual_domain_from_row_or_domain,
+    residual_domain_index,
+    resolve_existing,
+)
 from ucdmr_flow_residual_plus.paths import dataset_path
 from ucdmr_flow_residual_plus.training.datasets import CONDITION_CHANNELS, CONDITION_KEYS, M_GATE_INDEX, M_RAW_INDEX, load_mask01, load_rgb01
 
@@ -82,8 +89,8 @@ def _normal_mask_match_score(normal: dict[str, str], mask: dict[str, str]) -> tu
         else:
             score += 0.5
             reasons.append("different_split_key")
-    normal_video = normal.get("video_id", "")
-    mask_video = _row_value(mask, "video_id")
+    normal_video = normal.get("video_id") or normal.get("video_name", "")
+    mask_video = _row_value(mask, "video_id") or _row_value(mask, "video_name")
     if normal_video and mask_video:
         if normal_video == mask_video:
             reasons.append("same_video")
@@ -314,11 +321,15 @@ def generate(args: Any) -> None:
     skipped_match_score = 0
     with torch.no_grad():
         for idx, normal in enumerate(normals):
-            domain = effective_domain(normal)
-            base_domain = base_domain_name(domain)
+            mask_domain = mask_domain_from_row(normal)
+            residual_domain = residual_domain_from_row_or_domain(mask_domain)
             image = load_rgb01(dataset_path(dataset_root, normal["dataset_relative_path"]))
             height, width = image.shape[:2]
-            candidates = [row for row in masks if effective_domain(row) == domain and _same_shape(row, width, height)]
+            candidates = [row for row in masks if mask_domain_from_row(row) == mask_domain and _same_shape(row, width, height)]
+            if not candidates:
+                skipped_no_candidates += 1
+                continue
+            candidates = [row for row in candidates if row.get("render_accept", "1") != "0"]
             if not candidates:
                 skipped_no_candidates += 1
                 continue
@@ -348,7 +359,7 @@ def generate(args: Any) -> None:
                 model=model,
                 image=image,
                 condition=condition,
-                domain=domain,
+                domain=residual_domain,
                 style=style,
                 device=device,
                 steps=args.flow_steps,
@@ -377,7 +388,10 @@ def generate(args: Any) -> None:
                 teacher_dice = round(float(teacher_parts["dice"]), 8)
                 teacher_recall = round(float(teacher_parts["recall"]), 8)
                 teacher_fp = round(float((teacher_pred & outside_mask).sum() / max(int(outside_mask.sum()), 1)), 8)
-            synthetic_id = f"plus_syn_{idx:06d}_{domain}_{Path(normal['dataset_relative_path']).stem}_{mask_row.get('sample_id', idx)}"
+            mask_row_domain = mask_domain_from_row(mask_row)
+            mask_video_name = _row_value(mask_row, "video_name")
+            normal_dphone_id = dphone_id_from_row(normal) if base_domain_name(mask_domain) == "dphone" else None
+            synthetic_id = f"plus_syn_{idx:06d}_{mask_domain}_{Path(normal['dataset_relative_path']).stem}_{mask_row.get('sample_id', idx)}"
             image_path = synthetic_root / "images" / f"{synthetic_id}.png"
             mask_path = synthetic_root / "masks" / f"{synthetic_id}.png"
             residual_path = synthetic_root / "residual_abs" / f"{synthetic_id}.png"
@@ -398,8 +412,15 @@ def generate(args: Any) -> None:
             records.append(
                 {
                     "synthetic_id": synthetic_id,
-                    "domain": domain,
-                    "base_domain": base_domain,
+                    "domain": mask_domain,
+                    "effective_domain": mask_domain,
+                    "dphone_id": "" if normal_dphone_id is None else normal_dphone_id,
+                    "base_domain": residual_domain,
+                    "residual_domain": residual_domain,
+                    "normal_effective_domain": mask_domain,
+                    "mask_effective_domain": mask_row_domain,
+                    "normal_video_name": normal.get("video_name", ""),
+                    "mask_video_name": mask_video_name,
                     "source_split": normal.get("split", ""),
                     "normal_source_path": normal["dataset_relative_path"],
                     "source_normal_path": normal["dataset_relative_path"],

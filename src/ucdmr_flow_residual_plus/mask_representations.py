@@ -10,6 +10,7 @@ from PIL import Image, ImageFilter
 from ucdmr_flow_residual_plus.image_utils import bool_mask, dilate, load_labelme_mask, save_mask
 from ucdmr_flow_residual_plus.io_utils import ensure_dir
 
+from ucdmr_flow_residual_plus.constants import mask_domain_from_row, materialize_domain_fields
 from ucdmr_flow_residual_plus.paths import dataset_path
 
 
@@ -227,7 +228,8 @@ def prepare_plus_masks(
         gate_blur=gate_blur,
         sdf_clip=sdf_clip,
     )
-    domain = row.get("dataset_group", row.get("domain", ""))
+    row = materialize_domain_fields(row)
+    domain = mask_domain_from_row(row)
     sample_id = f"{domain}__{Path(row['dataset_relative_path']).stem}"
 
     paths: dict[str, Path] = {}
@@ -250,6 +252,10 @@ def prepare_plus_masks(
         **row,
         "sample_id": sample_id,
         "domain": domain,
+        "effective_domain": domain,
+        "base_domain": row.get("base_domain", ""),
+        "residual_domain": row.get("residual_domain", ""),
+        "dphone_id": row.get("dphone_id", ""),
         "mask_width": width,
         "mask_height": height,
         "inpaint_radius": inpaint_radius,

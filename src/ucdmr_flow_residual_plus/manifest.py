@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from ucdmr_flow_residual_plus.constants import materialize_domain_fields
 from ucdmr_flow_residual_plus.io_utils import read_csv_records
 
 
@@ -36,6 +37,7 @@ def filter_valid_rows(rows: list[dict[str, str]], *, max_samples: int | None = N
             continue
         record = dict(row)
         record["domain"] = record.get("dataset_group", "")
+        record = materialize_domain_fields(record)
         kept.append(record)
     if max_samples is not None:
         return kept[:max_samples]
@@ -48,7 +50,7 @@ def limit_per_domain(rows: list[dict[str, str]], max_per_domain: int | None) -> 
     counts: dict[str, int] = defaultdict(int)
     limited = []
     for row in rows:
-        domain = row.get("dataset_group", row.get("domain", ""))
+        domain = row.get("effective_domain", row.get("domain", row.get("dataset_group", "")))
         if counts[domain] >= max_per_domain:
             continue
         counts[domain] += 1
@@ -58,11 +60,11 @@ def limit_per_domain(rows: list[dict[str, str]], max_per_domain: int | None) -> 
 
 def summarize(rows: list[dict[str, str]]) -> dict[str, object]:
     labels = Counter(row.get("label", "") for row in rows)
-    domains = Counter(row.get("dataset_group", row.get("domain", "")) for row in rows)
-    by_domain_label = Counter((row.get("dataset_group", row.get("domain", "")), row.get("label", "")) for row in rows)
+    domains = Counter(row.get("effective_domain", row.get("domain", row.get("dataset_group", ""))) for row in rows)
+    by_domain_label = Counter((row.get("effective_domain", row.get("domain", row.get("dataset_group", ""))), row.get("label", "")) for row in rows)
     sizes = Counter(
         (
-            row.get("dataset_group", row.get("domain", "")),
+            row.get("effective_domain", row.get("domain", row.get("dataset_group", ""))),
             row.get("label", ""),
             row.get("image_width", ""),
             row.get("image_height", ""),

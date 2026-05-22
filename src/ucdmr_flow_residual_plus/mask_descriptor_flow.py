@@ -18,7 +18,8 @@ from ucdmr_flow_residual_plus.config import domain_value, load_config, resolve_o
 from ucdmr_flow_residual_plus.constants import (
     MASK_DOMAIN_TO_INDEX,
     base_domain_name,
-    effective_domain,
+    materialize_domain_fields,
+    mask_domain_from_row,
     resolve_existing,
 )
 from ucdmr_flow_residual_plus.mask_representations import build_plus_regions, orientation
@@ -72,6 +73,10 @@ TEMPLATE_METADATA_FIELDS = [
     "crop_width",
     "crop_height",
     "crop_match_strategy",
+    "dphone_id",
+    "effective_domain",
+    "base_domain",
+    "residual_domain",
     "center_x",
     "center_y",
     "bbox_w",
@@ -192,13 +197,8 @@ def train(args: Any) -> None:
     for source_row in read_csv_records(masks_manifest):
         if source_row.get("split", args.split) != args.split:
             continue
-        domain = effective_domain(source_row)
-        if domain not in MASK_DOMAIN_TO_INDEX:
-            continue
-        row = dict(source_row)
-        row["base_domain"] = base_domain_name(domain)
-        row["domain"] = domain
-        row["effective_domain"] = domain
+        row = materialize_domain_fields(source_row)
+        domain = str(row["effective_domain"])
         rows.append(row)
     if args.max_samples is not None:
         rows = rows[: args.max_samples]
@@ -266,6 +266,10 @@ def dry_run_sample_summary(args: Any) -> dict[str, object]:
         "sample_count": args.sample_count,
         "samples_per_domain": args.samples_per_domain,
         "workers": args.workers,
+        "max_render_center_error": args.max_render_center_error,
+        "max_render_angle_error": args.max_render_angle_error,
+        "reject_clamped": args.reject_clamped,
+        "keep_rejected": args.keep_rejected,
         "mask_region_radii": "config_per_domain" if args.inpaint_radius is None or args.band_radius is None or args.gate_radius is None or args.gate_blur is None else "cli_override",
         "dry_run": True,
     }
@@ -387,7 +391,7 @@ def _render(
 def _region_value(config: dict[str, Any], args_value: int | float | None, key: str, domain: str, default: int | float) -> int | float:
     if args_value is not None:
         return args_value
-    return domain_value(config, "masks", key, domain, default)
+    return domain_value(config, "masks", key, base_domain_name(domain), default)
 
 
 def _render_sample_task(task: dict[str, Any]) -> dict[str, object]:
@@ -400,23 +404,47 @@ def _render_sample_task(task: dict[str, Any]) -> dict[str, object]:
     width = int(template.get("mask_width", template.get("image_width", 0)))
     height = int(template.get("mask_height", template.get("image_height", 0)))
     raw, placement = _render(template, desc, width=width, height=height, fields=descriptor_fields)
-    regions = build_plus_regions(
-        raw,
-        inpaint_radius=int(task["inpaint_radius"]),
-        band_radius=int(task["band_radius"]),
-        gate_radius=int(task["gate_radius"]),
-        gate_blur=float(task["gate_blur"]),
-    )
+    raw_ratio = float(raw.mean())
+    center_error: str | float = ""
+    if placement.get("rendered_center_x") != "" and placement.get("rendered_center_y") != "":
+        dx = float(placement["rendered_center_x"]) - float(placement["requested_center_x"])
+        dy = float(placement["rendered_center_y"]) - float(placement["requested_center_y"])
+        center_error = round(float((dx * dx + dy * dy) ** 0.5), 8)
+    angle_error_abs: str | float = ""
+    if placement.get("render_orientation_error_degrees") != "":
+        angle_error_abs = round(abs(float(placement["render_orientation_error_degrees"])), 6)
+    reject_reasons: list[str] = []
+    if raw_ratio <= 0.0:
+        reject_reasons.append("empty_mask")
+    if raw_ratio < float(task["min_area_ratio"]):
+        reject_reasons.append("area_too_small")
+    if raw_ratio > float(task["max_area_ratio"]):
+        reject_reasons.append("area_too_large")
+    if bool(task["reject_clamped"]) and placement.get("placement_clamped") == "1":
+        reject_reasons.append("placement_clamped")
+    if center_error != "" and float(center_error) > float(task["max_render_center_error"]):
+        reject_reasons.append("center_error")
+    if angle_error_abs != "" and float(angle_error_abs) > float(task["max_render_angle_error"]):
+        reject_reasons.append("orientation_error")
+    render_accept = "0" if reject_reasons else "1"
     sample_id = f"plus_mask_{idx:06d}_{domain}_{template.get('sample_id', Path(template['m_raw_path']).stem)}"
     paths: dict[str, str] = {}
-    for name, mask in regions.items():
-        path = sample_root / name / f"{sample_id}.png"
-        ensure_dir(path.parent)
-        if mask.dtype == bool:
-            save_mask(path, mask)
-        else:
-            Image.fromarray(np.clip(mask * 255.0, 0, 255).astype(np.uint8), mode="L").save(path)
-        paths[f"{name}_path"] = str(path)
+    if render_accept == "1" or bool(task["keep_rejected"]):
+        regions = build_plus_regions(
+            raw,
+            inpaint_radius=int(task["inpaint_radius"]),
+            band_radius=int(task["band_radius"]),
+            gate_radius=int(task["gate_radius"]),
+            gate_blur=float(task["gate_blur"]),
+        )
+        for name, mask in regions.items():
+            path = sample_root / name / f"{sample_id}.png"
+            ensure_dir(path.parent)
+            if mask.dtype == bool:
+                save_mask(path, mask)
+            else:
+                Image.fromarray(np.clip(mask * 255.0, 0, 255).astype(np.uint8), mode="L").save(path)
+            paths[f"{name}_path"] = str(path)
     target_angle = _angle_from_descriptor(desc, descriptor_fields)
     descriptor_record = {field: round(float(value), 8) for field, value in zip(descriptor_fields, desc)}
     descriptor_record["main_orientation_norm"] = round(_angle_to_norm(target_angle), 8)
@@ -424,13 +452,19 @@ def _render_sample_task(task: dict[str, Any]) -> dict[str, object]:
         "idx": idx,
         "sample_id": sample_id,
         "domain": domain,
+        "dphone_id": template.get("dphone_id", ""),
         "base_domain": base_domain_name(domain),
+        "residual_domain": base_domain_name(domain),
         "effective_domain": domain,
         "split": "generated",
         "label": "crack",
         "mask_width": width,
         "mask_height": height,
-        "m_raw_ratio": round(float(raw.mean()), 10),
+        "inpaint_radius": int(task["inpaint_radius"]),
+        "band_radius": int(task["band_radius"]),
+        "gate_radius": int(task["gate_radius"]),
+        "gate_blur": float(task["gate_blur"]),
+        "m_raw_ratio": round(raw_ratio, 10),
         "source_template_id": template.get("sample_id", ""),
         "source_template_domain": template.get("domain", ""),
         **{f"source_template_{key}": template.get(key, "") for key in TEMPLATE_METADATA_FIELDS},
@@ -438,6 +472,10 @@ def _render_sample_task(task: dict[str, Any]) -> dict[str, object]:
         "main_orientation": round(orientation(raw), 8),
         "component_count": "",
         "placement_score": "",
+        "render_center_error": center_error,
+        "render_orientation_error_abs_degrees": angle_error_abs,
+        "render_accept": render_accept,
+        "render_reject_reason": ";".join(reject_reasons) if reject_reasons else "accepted",
         **placement,
         **paths,
     }
@@ -475,7 +513,7 @@ def sample(args: Any) -> None:
     templates = read_csv_records(template_manifest)
     by_domain: dict[str, list[dict[str, str]]] = {}
     for row in templates:
-        domain = effective_domain(row)
+        domain = mask_domain_from_row(row)
         if domain in domain_to_index:
             by_domain.setdefault(domain, []).append(row)
     rng = random.Random(args.seed)
@@ -520,6 +558,12 @@ def sample(args: Any) -> None:
                 "band_radius": int(_region_value(config, args.band_radius, "band_radius", domain, 5)),
                 "gate_radius": int(_region_value(config, args.gate_radius, "gate_radius", domain, 7)),
                 "gate_blur": float(_region_value(config, args.gate_blur, "gate_blur", domain, 3.0)),
+                "min_area_ratio": float(args.min_area_ratio),
+                "max_area_ratio": float(args.max_area_ratio),
+                "max_render_center_error": float(args.max_render_center_error),
+                "max_render_angle_error": float(args.max_render_angle_error),
+                "reject_clamped": bool(args.reject_clamped),
+                "keep_rejected": bool(args.keep_rejected),
             }
         )
     workers = max(1, int(args.workers))
@@ -542,13 +586,22 @@ def sample(args: Any) -> None:
     records.sort(key=lambda record: int(record.get("idx", 0)))
     for record in records:
         record.pop("idx", None)
+    all_records = list(records)
+    records = [record for record in all_records if record.get("render_accept") == "1"]
     manifest_path = sample_root / "sampled_masks_manifest.csv"
     write_csv_records(manifest_path, records)
+    all_manifest_path = sample_root / "sampled_masks_manifest_all.csv"
+    if args.keep_rejected:
+        write_csv_records(all_manifest_path, all_records)
     summary = {
         "sample_count": len(records),
+        "attempted_sample_count": len(all_records),
+        "rejected_sample_count": len(all_records) - len(records),
         "clamped_placement_count": sum(1 for record in records if record.get("placement_clamped") == "1"),
+        "all_clamped_placement_count": sum(1 for record in all_records if record.get("placement_clamped") == "1"),
         "checkpoint": str(checkpoint_path),
         "manifest": str(manifest_path),
+        "all_manifest": str(all_manifest_path) if args.keep_rejected else "",
         "workers": workers,
     }
     write_json(sample_root / "sampled_masks_summary.json", summary)
