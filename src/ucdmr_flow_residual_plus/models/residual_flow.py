@@ -41,8 +41,6 @@ class ResidualFlowUNet(nn.Module):
         style_dim: int = 16,
         time_dim: int = 128,
         max_velocity: float = 0.0,
-        local_refine: bool = False,
-        local_refine_channels: int = 64,
     ) -> None:
         super().__init__()
         c = int(base_channels)
@@ -259,6 +257,8 @@ class ResidualFlowDiT(nn.Module):
         style_dim: int = 16,
         time_dim: int = 128,
         max_velocity: float = 0.0,
+        local_refine: bool = False,
+        local_refine_channels: int = 64,
     ) -> None:
         super().__init__()
         if hidden_size % 4 != 0:
